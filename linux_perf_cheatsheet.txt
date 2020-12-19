@@ -1,0 +1,51 @@
+                         system load avg over the last 1, 5 and 15 minutes
+      current time       load average = running + waiting threads
+        |    time since last boot                    |
+        |         |                                  |
+        v         v                                  v
+top - 08:54:25 up 37 days,  8:58, 11 users,  load average: 1.77, 0.57, 0.19 
+Tasks: 321 total,   1 running, 204 sleeping,   0 stopped,   0 zombie
+        ^ 
+       total tasks or threads         time waiting for I/O completion
+                                 time in kernel| idle handler
+                                     |         |       time spent servicing hardware interrupts
+                                     |         |        |
+                                     v         v        v
+%Cpu(s):  4.9 us,  1.5 sy,  0.0 ni, 93.6 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st <-+
+          ^           ^       ^niced user processes              ^        time stolen from this vm by the hypervisor
+          |           |                                          |
+          |       time kernel processes                   time spent servicing software interrupts
+         time running un-niced user processes
+         
+KiB Mem : 24210912 total,  7884172 free,  2635336 used, 13691404 buff/cache
+^          ^
+|         total = free + used +  buff/cache
+Physical memory in KiB(kibibyte) = 1024 bytes
+KiB Swap:        0 total,        0 free,        0 used. 21357152 avail Mem 
+
+task's priority. From -20 to 19, with -20 being most important
+                |  Niceness: -20 (most favorable) to 19 (least favorable ).
+                v   v
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND                                                
+31194 narwhal   20   0  357412  45168  12188 S 104.3  0.2   2:57.76 handler_perf_te                                        
+31192 narwhal   20   0   42924   4180   3396 R   0.7  0.0   0:00.76 top                                                    
+31130 narwhal   20   0  330372  38348  19236 S   0.3  0.2   0:01.67 emacs                                                  
+    1 root      20   0   78156   6544   3916 S   0.0  0.0   0:59.73 systemd                                                
+    2 root      20   0       0      0      0 S   0.0  0.0   0:00.55 kthreadd                                               
+    4 root       0 -20       0      0      0 I   0.0  0.0   0:00.00 kworker/0:0H                                           
+    5 root      20   0       0      0      0 I   0.0  0.0   0:01.63 kworker/u128:0                                         
+    7 root       0 -20       0      0      0 I   0.0  0.0   0:00.00 mm_percpu_wq                                           
+    8 root      20   0       0      0      0 S   0.0  0.0   1:04.08 ksoftirqd/0                                            
+    9 root      20   0       0      0      0 I   0.0  0.0  15:59.09 rcu_sched                                              
+   10 root      20   0       0      0      0 I   0.0  0.0   0:00.00 rcu_bh                                                 
+   11 root      rt   0       0      0      0 S   0.0  0.0   0:01.01 migration/0                                            
+   12 root      rt   0       0      0      0 S   0.0  0.0   0:09.33 watchdog/0                                             
+   13 root      20   0       0      0      0 S   0.0  0.0   0:00.00 cpuhp/0                                                
+   14 root      20   0       0      0      0 S   0.0  0.0   0:00.00 cpuhp/1                                                
+   15 root      rt   0       0      0      0 S   0.0  0.0   0:08.38 watchdog/1                                             
+   16 root      rt   0       0      0      0 S   0.0  0.0   0:00.80 migration/1                                            
+   17 root      20   0       0      0      0 S   0.0  0.0   0:30.31 ksoftirqd/1                                            
+   19 root       0 -20       0      0      0 I   0.0  0.0   0:00.00 kworker/1:0H                                           
+   20 root      20   0       0      0      0 S   0.0  0.0   0:00.00 cpuhp/2                                                
+   21 root      rt   0       0      0      0 S   0.0  0.0   0:09.78 watchdog/2                                             
+   22 root      rt   0       0      0      0 S   0.0  0.0   0:00.83 migration/2                                            
