@@ -1,3 +1,9 @@
+
+========================================================
+* top
+------
+
+Ref: man top
                          system load avg over the last 1, 5 and 15 minutes
       current time       load average = running + waiting threads
         |    time since last boot                    |
@@ -6,7 +12,7 @@
 top - 08:54:25 up 37 days,  8:58, 11 users,  load average: 1.77, 0.57, 0.19 
 Tasks: 321 total,   1 running, 204 sleeping,   0 stopped,   0 zombie
         ^ 
-       total tasks or threads         time waiting for I/O completion
+       total tasks or threads         time waiting for I/O completion (disk)
                                  time in kernel| idle handler
                                      |         |       time spent servicing hardware interrupts
                                      |         |        |
@@ -15,11 +21,11 @@ Tasks: 321 total,   1 running, 204 sleeping,   0 stopped,   0 zombie
           ^           ^       ^niced user processes              ^        time stolen from this vm by the hypervisor
           |           |                                          |
           |       time kernel processes                   time spent servicing software interrupts
-         time running un-niced user processes
-         
+         time running un-niced user processes                         cache: read from the disk
+                                                                       v 
 KiB Mem : 24210912 total,  7884172 free,  2635336 used, 13691404 buff/cache
-^          ^
-|         total = free + used +  buff/cache
+^          ^                                                      ^ 
+|         total = free + used +  buff/cache                 buffers:yet to be written to disk
 Physical memory in KiB(kibibyte) = 1024 bytes
 KiB Swap:        0 total,        0 free,        0 used. 21357152 avail Mem 
 
@@ -49,3 +55,135 @@ task's priority. From -20 to 19, with -20 being most important
    20 root      20   0       0      0      0 S   0.0  0.0   0:00.00 cpuhp/2                                                
    21 root      rt   0       0      0      0 S   0.0  0.0   0:09.78 watchdog/2                                             
    22 root      rt   0       0      0      0 S   0.0  0.0   0:00.83 migration/2                                            
+
+==================================================================
+* /proc/meminfo
+
+Ref: https://www.kernel.org/doc/Documentation/filesystems/proc.txt
+
+$ cat /proc/meminfo
+MemTotal:       24210912 kB <-- physical ram size
+MemFree:         7465412 kB 
+MemAvailable:   20939500 kB <-- memory is available for starting new applications
+Buffers:          560476 kB <-- temporary storage for raw disk blocks
+Cached:         12487660 kB <-- in-memory cache for files read from the disk (the page cache)
+SwapCached:            0 kB
+Active:          6260388 kB <-- Kernel memory that has been used more recently
+Inactive:        9389976 kB <-- Kernel memory which has been less recently used (It is more eligible to be reclaimed for other purposes)
+Active(anon):    1369780 kB <-- user space processes recently used memory
+Inactive(anon):  1233564 kB <-- user space processes less recently used memory
+Active(file):    4890608 kB <-- Kernel cache for files that was read from disk (recently used)
+Inactive(file):  8156412 kB <-- Kernel cache for files that was read from disk (less recently used)
+                               Note: Cached = Active(file) + Inactive(file)
+Unevictable:           0 kB
+Mlocked:               0 kB
+SwapTotal:             0 kB
+SwapFree:              0 kB
+Dirty:                36 kB
+Writeback:             0 kB
+AnonPages:       2600360 kB
+Mapped:            78340 kB
+Shmem:              1056 kB
+Slab:             819012 kB
+SReclaimable:     644364 kB
+SUnreclaim:       174648 kB
+KernelStack:        7248 kB
+PageTables:        16568 kB
+NFS_Unstable:          0 kB
+Bounce:                0 kB
+WritebackTmp:          0 kB
+CommitLimit:    12105456 kB
+Committed_AS:    3328516 kB
+VmallocTotal:   34359738367 kB
+VmallocUsed:           0 kB
+VmallocChunk:          0 kB
+HardwareCorrupted:     0 kB
+AnonHugePages:         0 kB
+ShmemHugePages:        0 kB
+ShmemPmdMapped:        0 kB
+CmaTotal:              0 kB
+CmaFree:               0 kB
+HugePages_Total:       0
+HugePages_Free:        0
+HugePages_Rsvd:        0
+HugePages_Surp:        0
+Hugepagesize:       2048 kB
+DirectMap4k:     1134528 kB
+DirectMap2M:    23506944 kB
+DirectMap1G:     1048576 kB
+
+===================================
+* vmstat
+
+
+narwhal@narwhal:~$ vmstat 2 10 
+procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----
+ r  b   swpd   free   buff  cache    si   so    bi    bo   in   cs us sy id wa st
+ 1  0      0 7454868 562308 13136452  0    1    12    23    0    1  0  0 98  1  0
+ 0  0      0 7454744 562308 13136452  0    0     0     0   12  100  0  0 100  0  0
+ 0  0      0 7454868 562316 13136444  0    0     0     6    8   90  0  0 100  0  0
+ 0  0      0 7454868 562316 13136444  0    0     0     0    6   74  0  0 100  0  0
+ 0  0      0 7454996 562316 13136452  0    0     0     0   16  110  0  0 100  0  0
+ 0  0      0 7455120 562316 13136452  0    0     0     0    6   63  0  0 100  0  0
+ 0  0      0 7455120 562316 13136452  0    0     0     0    6   84  0  0 100  0  0
+ 0  0      0 7455244 562316 13136452  0    0     0     0   11   83  0  0 100  0  0
+ 0  0      0 7455368 562316 13136452  0    0     0     0   33  189  0  0 100  0  0
+ 0  0      0 7455368 562316 13136452  0    0     0     0   14   80  0  0 100  0  0
+ ^
+ r: The number of runnable processes (running or waiting for run time).
+ b: The number of processes in uninterruptible sleep.
+
+narwhal@narwhal:~$ 
+=======================================
+* iotop
+
+gives info by process
+
+$sudo iotop
+
+Total DISK READ :       0.00 B/s | Total DISK WRITE :       2.49 M/s
+Actual DISK READ:       0.00 B/s | Actual DISK WRITE:      49.77 K/s
+  TID  PRIO  USER     DISK READ  DISK WRITE  SWAPIN     IO>    COMMAND
+  496 be/3 root        0.00 B/s   26.80 K/s  0.00 %  5.79 % [jbd2/dm-0-8]
+32086 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.34 % [kworker/u130:3]
+38666 be/4 narwhal     0.00 B/s    2.46 M/s  0.00 %  0.06 % cc1plus -quiet -I /home/narwhal/~orcasql-mysql/source_downloads/g
+    1 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % init maybe-ubiquity
+    2 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kthreadd]
+    4 be/0 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kworker/0:0H]
+    5 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kworker/u128:0]
+    7 be/0 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [mm_percpu_wq]
+    8 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [ksoftirqd/0]
+    9 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [rcu_sched]
+   10 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [rcu_bh]
+   11 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [migration/0]
+   12 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [watchdog/0]
+   13 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [cpuhp/0]
+   14 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [cpuhp/1]
+   15 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [watchdog/1]
+   16 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [migration/1]
+   17 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [ksoftirqd/1]
+   19 be/0 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kworker/1:0H]
+   20 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [cpuhp/2]
+   21 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [watchdog/2]
+   22 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [migration/2]
+   23 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [ksoftirqd/2]
+   25 be/0 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kworker/2:0H]
+   26 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [cpuhp/3]
+   27 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [watchdog/3]
+   28 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [migration/3]
+   29 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [ksoftirqd/3]
+   31 be/0 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kworker/3:0H]
+
+=================================
+* iostat
+
+gives info by devices
+==========================
+* cachegrind
+
+
+============================
+https://github.com/iovisor/bcc/blob/master/tools/trace_example.txt userspace
+https://github.com/iovisor/bcc
+https://github.com/iovisor/bcc/blob/master/tools/wakeuptime_example.txt
+./wakeuptime -u          # don't include kernel threads (user only)
