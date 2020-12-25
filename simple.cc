@@ -28,6 +28,12 @@ Run:
 
 #define LOOP_COUNT 100
 
+class C1 {
+public:
+  int m1;
+  int m2;
+  int m3;
+};
 int debug = 0;
 
 pthread_mutex_t mutex1 = PTHREAD_MUTEX_INITIALIZER;
@@ -41,13 +47,24 @@ void sigint_handler(int signal) {
   exit(0);
 }
 
+void f1(int c) {
+  C1 c1;
+  c1.m1 = 1;
+  c1.m2 = 2;
+  c1.m3 = 3;
+  for (int i = 0; i > 0; i++) {
+    i = i + 1;
+  }
+  printf(".");
+}
+
+void f2(int b) { f1(b + 1);   printf(".");}
+void f3(int a) { f2(a + 1);   printf("."); }
 void *cpu_thread_function(void *vargp) {
   uint32_t my_num = (*(uint32_t *)vargp);
 
   for (int loop_count = 0; loop_count < LOOP_COUNT; loop_count++) {
-    for (int i = 0; i > 0; i++) {
-      i = i + 1;
-    }
+    f3(20);
     pthread_mutex_lock(&mutex1);
     sleep(1);
     pthread_mutex_unlock(&mutex1);

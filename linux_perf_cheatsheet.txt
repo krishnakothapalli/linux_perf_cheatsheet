@@ -187,3 +187,384 @@ https://github.com/iovisor/bcc/blob/master/tools/trace_example.txt userspace
 https://github.com/iovisor/bcc
 https://github.com/iovisor/bcc/blob/master/tools/wakeuptime_example.txt
 ./wakeuptime -u          # don't include kernel threads (user only)
+==========================================================================
+* mutrace Measuring mutex lock contention
+
+Ref: http://0pointer.de/blog/projects/mutrace.html
+
+sudo apt-get install mutrace
+
+Note:
+ - This tool report lock contention (valgrind drd does not report contention)
+ - link with -rdynamic for better traces
+   gcc -O -g3  simple.cc -o /tmp/simple -lpthread -rdynamic;
+ - program has to exit to capture traces
+
+~/linux_perf_cheatsheet$ mutrace /tmp/simple
+mutrace: 0.2 sucessfully initialized for process simple (pid 53366).
+io_threads are running ...
+cpu_threads are running ...
+
+  C-c C-cTerminating due to signal:2
+
+mutrace: Showing statistics for process simple (pid 53366).
+mutrace: 3 mutexes used.
+
+Mutex #1 (0x0x560d19982080) first referenced by:
+	/usr/lib/mutrace/libmutrace.so(pthread_mutex_lock+0x47) [0x7f5601935827]
+	/tmp/simple(_Z19cpu_thread_functionPv+0x46) [0x560d19780ed6]
+
+Mutex #0 (0x0x560d19982040) first referenced by:
+	/usr/lib/mutrace/libmutrace.so(pthread_mutex_lock+0x47) [0x7f5601935827]
+	/tmp/simple(_Z19cpu_thread_functionPv+0x60) [0x560d19780ef0]
+
+Mutex #2 (0x0x560d199820c0) first referenced by:
+	/usr/lib/mutrace/libmutrace.so(pthread_mutex_lock+0x47) [0x7f5601935827]
+	/tmp/simple(_Z19cpu_thread_functionPv+0x2c) [0x560d19780ebc]
+
+mutrace: Showing 3 most contended mutexes:
+                           Contention: Times lock was already taken when we tried to take it and we had to wait.    
+ Times the mutex was locked     | 
+            |   Times the owning| thread of the mutex changed
+            |       |           |   Total time of the lock    Longest time lock was held
+            |       |           |     |                         |
+            v       v           v     v                         v
+ Mutex #   Locked  Changed    Cont. tot.Time[ms] avg.Time[ms] max.Time[ms]  Flags
+       1        6        5        3    10000.704     1666.784     2000.162 M-.--.  <-- Mutex
+       0        4        3        3     9000.447     2250.112     3000.168 M-.--.
+       2        6        5        2     6000.983     1000.164     1000.184 M-.--.
+                                                                           ||||||
+                                                                           /|||||
+          Object:                                     M = Mutex, W = RWLock /||||
+           State:                                 x = dead, ! = inconsistent /|||
+             Use:                                 R = used in realtime thread /||
+      Mutex Type:                 r = RECURSIVE, e = ERRRORCHECK, a = ADAPTIVE /|
+  Mutex Protocol:                                      i = INHERIT, p = PROTECT /
+     RWLock Kind: r = PREFER_READER, w = PREFER_WRITER, W = PREFER_WRITER_NONREC 
+
+mutrace: Note that the flags column R is only valid in --track-rt mode!
+
+mutrace: Total runtime is 13614.505 ms.
+
+mutrace: Results for SMP with 16 processors.
+
+
+* drd valgrind 
+
+Linux valgrind's drd can be used to track down long held mutexes.
+Note: This does not find mutex contention.
+Ref: https://www.valgrind.org/docs/manual/drd-manual.html
+
+Reports all locks that are held for more than 10ms (--exclusive-threshold=10)
+narwhal@narwhal:~/linux_perf_cheatsheet$ valgrind --tool=drd  --exclusive-threshold=10 /tmp/simple
+==53405== drd, a thread error detector
+==53405== Copyright (C) 2006-2017, and GNU GPL'd, by Bart Van Assche.
+==53405== Using Valgrind-3.13.0 and LibVEX; rerun with -h for copyright info
+==53405== Command: /tmp/simple
+==53405== 
+io_threads are running ...
+cpu_threads are running ...
+==53405== Thread 3: <-- Thread 3 acquired mutex at line simple.cc:51 an held it for 1001 ms
+==53405== Acquired at:
+==53405==    at 0x4C39193: pthread_mutex_lock (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x108EBB: cpu_thread_function(void*) (simple.cc:49)
+==53405==    by 0x4C36413: ??? (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x4E556DA: start_thread (pthread_create.c:463)
+==53405==    by 0x518EA3E: clone (clone.S:95)
+==53405== Lock on mutex 0x30a0c0 was held during 1001 ms (threshold: 10 ms).
+==53405==    at 0x4C3A123: pthread_mutex_unlock (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x108ECD: cpu_thread_function(void*) (simple.cc:51)
+==53405==    by 0x4C36413: ??? (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x4E556DA: start_thread (pthread_create.c:463)
+==53405==    by 0x518EA3E: clone (clone.S:95)
+==53405== mutex 0x30a0c0 was first observed at:
+==53405==    at 0x4C390D3: pthread_mutex_lock (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x108EBB: cpu_thread_function(void*) (simple.cc:49)
+==53405==    by 0x4C36413: ??? (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x4E556DA: start_thread (pthread_create.c:463)
+==53405==    by 0x518EA3E: clone (clone.S:95)
+==53405== 
+==53405== Acquired at:
+==53405==    at 0x4C39193: pthread_mutex_lock (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x108ED5: cpu_thread_function(void*) (simple.cc:53)
+==53405==    by 0x4C36413: ??? (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x4E556DA: start_thread (pthread_create.c:463)
+==53405==    by 0x518EA3E: clone (clone.S:95)
+==53405== Lock on mutex 0x30a080 was held during 2001 ms (threshold: 10 ms).
+==53405==    at 0x4C3A123: pthread_mutex_unlock (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x108EE7: cpu_thread_function(void*) (simple.cc:55)
+==53405==    by 0x4C36413: ??? (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x4E556DA: start_thread (pthread_create.c:463)
+==53405==    by 0x518EA3E: clone (clone.S:95)
+==53405== mutex 0x30a080 was first observed at:
+==53405==    at 0x4C390D3: pthread_mutex_lock (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x108ED5: cpu_thread_function(void*) (simple.cc:53)
+==53405==    by 0x4C36413: ??? (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x4E556DA: start_thread (pthread_create.c:463)
+==53405==    by 0x518EA3E: clone (clone.S:95)
+==53405== 
+==53405== Acquired at:
+==53405==    at 0x4C39193: pthread_mutex_lock (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x108EEF: cpu_thread_function(void*) (simple.cc:57)
+==53405==    by 0x4C36413: ??? (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x4E556DA: start_thread (pthread_create.c:463)
+==53405==    by 0x518EA3E: clone (clone.S:95)
+==53405== Lock on mutex 0x30a040 was held during 3001 ms (threshold: 10 ms).
+==53405==    at 0x4C3A123: pthread_mutex_unlock (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x108F01: cpu_thread_function(void*) (simple.cc:59)
+==53405==    by 0x4C36413: ??? (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x4E556DA: start_thread (pthread_create.c:463)
+==53405==    by 0x518EA3E: clone (clone.S:95)
+==53405== mutex 0x30a040 was first observed at:
+==53405==    at 0x4C390D3: pthread_mutex_lock (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x108EEF: cpu_thread_function(void*) (simple.cc:57)
+==53405==    by 0x4C36413: ??? (in /usr/lib/valgrind/vgpreload_drd-amd64-linux.so)
+==53405==    by 0x4E556DA: start_thread (pthread_create.c:463)
+==53405==    by 0x518EA3E: clone (clone.S:95)
+==53405== 
+=========================================================================================
+
+* bpftrace
+
+Installation
+-------------
+Ref: https://snapcraft.io/install/bpftrace/ubuntu
+$ sudo snap install bpftrace
+$ sudo snap connect bpftrace:system-trace
+
+(not needed
+https://www.flagword.net/2020/03/my-experience-with-kernel-lockdown-and-ebfp/
+As a dirty hack I’ve used Alt+SysRq option so far. Btw, to initiate Alt+SysRq on Dell 7390 I had to:
+1. Press Fn+Esc to enable function keys
+2. Press Alt+PrtScr+x to disable lockdown
+
+
+bpftrace -e 'u:/lib/x86_64-linux-gnu/libc-2.27.so:malloc { @[ustack(5)] = sum(arg0); }'
+
+Code needs to be instrumented
+Ref:
+https://github.com/iovisor/bpftrace
+https://github.com/iovisor/bpftrace/blob/master/docs/tutorial_one_liners.md
+https://www.percona.com/sites/default/files/presentations/Scale18x-2020-bpfTrace-finally-dTrace-replacement.pdf
+https://www.joyfulbikeshedding.com/blog/2019-01-31-full-system-dynamic-tracing-on-linux-using-ebpf-and-bpftrace.html#usdt-probe-example
+
+bpftrace -e 'uprobe:/tmp/simple:_Z19cpu_thread_functionPv { printf("%d\n", str(arg1)); }'
+
+bpftrace -e 'uprobe:/tmp/simple:_Z19cpu_thread_functionPv { printf("FOO\n"); }'
+
+===========================
+* stap  SystemTap is a tracing and probing tool that allows users to study and monitor the activities of the computer system (particularly, the kernel) in fine detail. It provides information similar to the output of tools like netstat, ps, top, and iostat, but is designed to provide more filtering and analysis options for collected information.
+
+In Ubuntu distro works only for user process, not for kernel. "However, SystemTap never fully merged into the Linux kernel (parts did, like uprobes), so as an out-of-tree project it required maintenance to work at all, and Red Hat only did this for RHEL." Ref; http://www.brendangregg.com/blog/2018-10-08/dtrace-for-linux-2018.html
+
+Ref: https://sourceware.org/systemtap/langref.pdf https://sourceware.org/systemtap/SystemTap_Beginners_Guide/
+    
+Example: Print call trace
+-------------------------------
+wget https://sourceware.org/systemtap/examples/general/para-callgraph.stp
+-v verbose
+-c CMD Start  the  probes, run CMD, and exit when CMD finishes.
+-x PID Sets  target()  to PID.
+linux_perf_cheatsheet/scripts$ sudo stap para-callgraph.stp  'process("/tmp/simple").function("*")'  -v -c "/tmp/simple > /dev/null"
+
+    microsecond           Function with args
+    |         Thread id    |    
+    |          |           v
+   545 simple(8163):   ->f1 c=0x16
+     0 simple(8166):->io_thread_function vargp=0x7ffd18fe773c
+     0 simple(8167):->cpu_thread_function vargp=0x7ffd18fe773c
+    25 simple(8167): ->f3 a=0x14
+    39 simple(8167):  ->f2 b=0x15
+    52 simple(8167):   ->f1 c=0x16
+    65 simple(8167):   <-f1 
+    70 simple(8167):  <-f2 
+    75 simple(8167): <-f3 
+  1127 simple(8165):   <-f1 
+  1137 simple(8165):  <-f2 
+  1142 simple(8165): <-f3 
+  1455 simple(8163):   <-f1 
+  1464 simple(8163):  <-f2 
+  1469 simple(8163): <-f3 
+6000710 simple(8167): ->f3 a=0x14
+6000741 simple(8167):  ->f2 b=0x15
+6000756 simple(8167):   ->f1 c=0x16
+6000772 simple(8167):   <-f1 
+6000777 simple(8167):  <-f2 
+6000781 simple(8167): <-f3 
+
+
+List matching probes and local variables of function f1:-
+------------------------------------------------------------
+$sudo stap  -L 'process("/tmp/simple").function("f1")'
+narwhal@narwhal:~/linux_perf_cheatsheet/scripts$ process("/tmp/simple").function("f1@/home/narwhal/linux_perf_cheatsheet/simple.cc:50") $c:int $c1:class C1 <-- shows variables that can be accessed 
+void f1(int c) {
+  C1 c1;
+  c1.m1 = 1;
+  c1.m2 = 2;
+  c1.m3 = 3;
+  for (int i = 0; i > 0; i++) {
+    i = i + 1;
+  }
+  printf(".");
+}
+
+
+
+Example comprehensive user process
+-----------------------------------
+in another window start: /tmp/simple
+
+
+sudo stap -v -e '
+probe process("/tmp/simple").function("f1")
+   {
+     printf(" Program name:%s", execname());
+     printf(" cpu:%d",  cpu());
+     printf(" pid:%d", pid());
+     printf(" tid:%d", tid());
+     printf(" function:%s", ppfunc() );
+     printf(" Local variables:%s",$$vars);
+     // refer program variables using $ such as $c1
+     printf(" Variable c1.m3:%d",$c1->m3);     
+     
+     printf("\n");
+     print_ubacktrace();
+   }
+
+probe process("/tmp/simple").statement("*@simple.cc:58").nearest
+   {
+     // $$..$$ prints nested classes structures
+     printf(" In function function:%s", ppfunc() );     
+     printf(" Locals: %s", $$locals$$);
+     printf("Params: %s", $$parms);
+     // prints variables in scope: class members also     
+     printf(" Variables in scope: %s", $$vars$$);
+     printf("\n");
+   }
+
+probe process("/tmp/simple").thread.begin
+   {
+        printf(" tid:%d started", tid());
+   }
+
+probe process("/tmp/simple").thread.end
+   {
+        printf(" tid:%d ended", tid());
+   }
+
+probe process("/tmp/simple").syscall
+   {
+        printf("%s called %s\n", syscall_name($syscall),  $$parms);
+   }
+
+probe process("/tmp/simple").syscall.return
+   {
+        // does not work: time =  gettimeofday_ns() - @entry(gettimeofday_ns());
+        printf("%s ret:%d\n", syscall_name($syscall), $return);
+   }
+
+global f3_time;
+probe process("/tmp/simple").function("f3").return
+   {
+      // operator <<< stores the value in the aaray "f3_time"
+      f3_time <<< gettimeofday_ns() - @entry(gettimeofday_ns());
+   }
+
+probe end
+   {
+     printf(" function f3 time stats in nano seconds\n");
+     print(" count:", @count(f3_time));
+     print(" min:", @min(f3_time));
+     print(" max:", @max(f3_time));
+     print(" avg:", @avg(f3_time));     
+
+     print(" Histogram:\n");
+     print(@hist_log(f3_time));
+   }
+
+'
+
+What probes are available:
+-----------------------------
+Ref: https://sourceware.org/systemtap/man/stapprobes.3stap.html (see sections USER-SPACE, Java)
+process("PATH").function("NAME")
+  - Places a probe near the beginning of the named function, so that parameters are available as context variables.
+process("PATH").statement("*@FILE.c:123")
+  -  Places a probe at the exact spot, exposing those local variables that are visible there.
+process("PATH").library("PATH").function("NAME")
+process("PATH").library("PATH").statement("*@FILE.c:123")
+  -  Places a probe at the exact spot, exposing those local variables that are visible there.
+process("PATH").library("PATH").statement("*@FILE.c:123").nearest
+process("PATH").function("*").return
+  - Places a probe at the moment after the return from the named function, so the return value is available as the "$return" context variable.
+process("PATH").function("myfun").label("foo")
+process("PATH").function("foo").callee("bar")
+  - Places a probe on the callee function given in the .callee modifier, where the callee must be a function called by the target function given in .function. calls through function pointers are not available.
+process("PATH").function("foo").callee("bar").return
+process("PATH").function("foo").callee("bar").call
+process("PATH").function("foo").callees(DEPTH)
+  - Recursively places probes on callees. 
+process(PID).function("NAME")
+process(PID).function("myfun").label("foo")
+process(PID).plt("NAME")
+ - ?? A .plt probe will probe functions in the program linkage table corresponding to the rest of the probe point
+process(PID).plt("NAME").return
+process(PID).statement("*@FILE.c:123")
+process(PID).statement("*@FILE.c:123").nearest <-- Places a probe at the nearest available line number for each line number given in the statement.
+process(PID).statement(ADDRESS).absolute
+  - use raw (unverified) virtual addresses
+process("PATH").mark("LABEL")
+  - This is for instrumented code(code should have STAP_PROBE1). A .mark probe gets called via a static probe which is defined in the application by STAP_PROBE1(PROVIDER,LABEL,arg1), which are macros defined in sys/sdt.h.
+
+
+process(PID).begin
+process("FULLPATH").begin
+process.begin
+ - A process.begin probe gets called when new process described by PID or FULLPATH gets created. In addition, it is called once from the context of each preexisting process, at systemtap script startup. This is useful to track live processes
+
+process(PID).thread.begin
+process("FULLPATH").thread.begin
+process.thread.begin
+  -  A process.thread.begin probe gets called when a new thread described by PID or FULLPATH gets created.
+process(PID).end
+process("FULLPATH").end
+process.end
+process(PID).thread.end
+process("FULLPATH").thread.end
+process.thread.end
+
+process(PID).syscall
+process("FULLPATH").syscall
+process.syscall
+ - The system call number is available in the $syscall context variable, and the first 6 arguments of the system call are available in the $argN (ex. $arg1, $arg2, ...) context variable.
+ 
+process(PID).syscall.return
+process("FULLPATH").syscall.return
+process.syscall.return
+  - the return value of the system call is available in the $return context variabl
+  
+process(PID).insn
+process("FULLPATH").insn
+process(PID).insn.block
+process("FULLPATH").insn.block
+ - A process.insn probe gets called for every single-stepped instruction of the process described by PID or FULLPATH. A process.insn.block probe gets called for every block-stepped instruction of the process described by PID or FULLPATH
+
+
+What to print:
+-------------------
+Ref: https://sourceware.org/systemtap/tutorial.pdf
+tid() The id of the current thread.
+pid() The process (task group) id of the current thread.
+uid() The id of the current user.
+execname() The name of the current process.
+cpu() The current cpu number.
+gettimeofday_s() Number of seconds since epoch.
+get_cycles() Snapshot of hardware cycle counter.
+pp() A string describing the probe point being currently handled.
+ppfunc() If known, the the function name in which this probe was placed.
+$$vars If available, a pretty-printed listing of all local variables in scope.
+print_backtrace() If possible, print a kernel backtrace.
+print_ubacktrace() If possible, print a user-space backtrace.
+
+
+===========================================
