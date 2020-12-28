@@ -1,9 +1,9 @@
 /*
-Compile:-
- gcc -O -g3  simple.cc -o /tmp/simple -lpthread -rdynamic;
-Run:
- /tmp/simple
- */
+  Compile:-
+  g++ -g3  simple.cc -o /tmp/simple -lpthread -rdynamic;
+  Run:
+  /tmp/simple
+*/
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -13,6 +13,7 @@ Run:
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <cmath>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -47,6 +48,19 @@ void sigint_handler(int signal) {
   exit(0);
 }
 
+#include <cmath>
+#include <iostream>
+
+bool isPrime(int x) {
+  int limit = std::sqrt(x);
+  for (int i = 2; i <= limit; ++i) {
+    if (x % i == 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void f1(int c) {
   C1 c1;
   c1.m1 = 1;
@@ -55,11 +69,23 @@ void f1(int c) {
   for (int i = 0; i > 0; i++) {
     i = i + 1;
   }
-  printf(".");
+  //printf(".");
+  int primeCount = 0;
+  for (int i = 0; i < 1000000; ++i) {
+    if (isPrime(i)) {
+      ++primeCount;
+    }
+  }
 }
 
-void f2(int b) { f1(b + 1);   printf(".");}
-void f3(int a) { f2(a + 1);   printf("."); }
+void f2(int b) {
+  f1(b + 1);
+  //printf(".");
+}
+void f3(int a) {
+  f2(a + 1);
+  printf(".");
+}
 void *cpu_thread_function(void *vargp) {
   uint32_t my_num = (*(uint32_t *)vargp);
 

@@ -179,8 +179,32 @@ Actual DISK READ:       0.00 B/s | Actual DISK WRITE:      49.77 K/s
 
 gives info by devices
 ==========================
-* cachegrind
+* cachegrind * callgrind
+Callgrind is a profiling tool that records the call history among functions in a program's run as a call-graph.
+Shows the following:-
+  - number of instructions executed, their relationship to source lines, the caller/callee relationship between functions, and the numbers of such calls
+  - cache simulation and/or branch prediction (similar to Cachegrind) can produce further information about the runtime behavior of an application
 
+Ref: https://valgrind.org/docs/manual/cl-manual.html
+     https://accu.org/journals/overload/20/111/floyd_1886/ good
+
+Installation:-
+sudo apt-get install  valgrind
+sudo apt-get install  kcachegrind
+
+valgrind --tool=cachegrind --log-file=cg.out --branch-sim=yes ./badprime
+
+# run cache and branch-predictor profiler
+# 
+$ valgrind --tool=cachegrind --branch-sim=yes --cache-sim=yes --cachegrind-out-file=chg.out /tmp/simple
+
+
+# run call graph simulator and branch-predictor emulator
+# 
+$ valgrind --tool=callgrind --branch-sim=yes --cacheuse=yes --callgrind-out-file=clg.out /tmp/simple
+
+
+kcachegrind chg.out 
 
 ============================
 https://github.com/iovisor/bcc/blob/master/tools/trace_example.txt userspace
@@ -323,6 +347,43 @@ cpu_threads are running ...
 ==53405==    by 0x518EA3E: clone (clone.S:95)
 ==53405== 
 =========================================================================================
+* perf
+
+
+
+man perf-probe
+
+       Add probes at zfree() function on /bin/zsh
+
+           ./perf probe -x /bin/zsh zfree or ./perf probe /bin/zsh zfree
+
+       Add probes at malloc() function on libc
+
+           ./perf probe -x /lib/libc.so.6 malloc or ./perf probe /lib/libc.so.6 malloc
+
+
+
+https://www.percona.com/sites/default/files/ple19-slides/day1-pm/tracing-and-profiling-mysql.pdf
+
+Adding uprobes to MySQL dynamically with perf
+● The idea was to add dynamic probe to capture SQL queries
+● This was done on Ubuntu 16.04 with recent Percona Server 5.7
+● First I had to find out with gdb where is the query (hint: dispatch_command
+has com_data parameter):
+(gdb) p com_data->com_query.query
+$4 = 0x7fb0dba8d021 "select 2"
+● Then it’s just as easy as follows:
+openxs@ao756:~$ sudo perf probe -x /usr/sbin/mysqld 'dispatch_command
+com_data->com_query.query:string'
+openxs@ao756:~$ sudo perf record -e 'probe_mysqld:dispatch_command*' -aR
+^C[ perf record: Woken up 1 times to write data ]
+[ perf record: Captured and wrote 0.676 MB perf.data (3 samples) ]
+openxs@ao756:~$ sudo perf script >/tmp/queries.txt
+openxs@ao756:~$ sudo perf probe --del dispatch_command
+
+
+
+=========================================================================================
 
 * bpftrace
 
@@ -357,8 +418,10 @@ bpftrace -e 'uprobe:/tmp/simple:_Z19cpu_thread_functionPv { printf("FOO\n"); }'
 
 In Ubuntu distro works only for user process, not for kernel. "However, SystemTap never fully merged into the Linux kernel (parts did, like uprobes), so as an out-of-tree project it required maintenance to work at all, and Red Hat only did this for RHEL." Ref; http://www.brendangregg.com/blog/2018-10-08/dtrace-for-linux-2018.html
 
-Ref: https://sourceware.org/systemtap/langref.pdf https://sourceware.org/systemtap/SystemTap_Beginners_Guide/
-    
+Ref: https://sourceware.org/systemtap/langref/ GOOD one
+     https://sourceware.org/systemtap/SystemTap_Beginners_Guide/
+     all functions https://manpages.debian.org/testing/systemtap-doc/index.html
+
 Example: Print call trace
 -------------------------------
 wget https://sourceware.org/systemtap/examples/general/para-callgraph.stp
@@ -409,9 +472,40 @@ void f1(int c) {
 }
 
 
+List matching probes in a file or library
+------------------------------------------------------------
+$ sudo stap -l 'process("/tmp/simple").function("*")'
+[sudo] password for narwhal: 
+process("/tmp/simple").function("__do_global_dtors_aux")
+process("/tmp/simple").function("__libc_csu_fini")
+process("/tmp/simple").function("__libc_csu_init")
+process("/tmp/simple").function("_fini")
+process("/tmp/simple").function("_init")
+process("/tmp/simple").function("_start")
+process("/tmp/simple").function("cpu_thread_function@/home/narwhal/linux_perf_cheatsheet/simple.cc:63")
+process("/tmp/simple").function("deregister_tm_clones")
+process("/tmp/simple").function("f1@/home/narwhal/linux_perf_cheatsheet/simple.cc:50")
+process("/tmp/simple").function("f2@/home/narwhal/linux_perf_cheatsheet/simple.cc:61")
+process("/tmp/simple").function("f3@/home/narwhal/linux_perf_cheatsheet/simple.cc:62")
+process("/tmp/simple").function("frame_dummy")
+process("/tmp/simple").function("io_thread_function@/home/narwhal/linux_perf_cheatsheet/simple.cc:82")
+process("/tmp/simple").function("main@/home/narwhal/linux_perf_cheatsheet/simple.cc:127")
+process("/tmp/simple").function("open@/usr/include/x86_64-linux-gnu/bits/fcntl2.h:41")
+process("/tmp/simple").function("printf@/usr/include/x86_64-linux-gnu/bits/stdio2.h:102")
+process("/tmp/simple").function("register_tm_clones")
+process("/tmp/simple").function("sigint_handler@/home/narwhal/linux_perf_cheatsheet/simple.cc:45")
+process("/tmp/simple").function("sprintf@/usr/include/x86_64-linux-gnu/bits/stdio2.h:31")
 
-Example comprehensive user process
------------------------------------
+narwhal@narwhal:~/linux_perf_cheatsheet/scripts$ sudo stap -l 'process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*")'
+process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("AbortTx@/home/narwhal/orcasql-mysql/storage/vml/metadata/UndurableStorage.cc:340")
+process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("Acquire@/home/narwhal/orcasql-mysql/storage/vml/io_fence/FileLockBasedIoFence.cc:28")
+process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("Acquire@/home/narwhal/orcasql-mysql/storage/vml/io_fence/IoFenceManager.cc:25")
+process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("Acquire@/home/narwhal/orcasql-mysql/storage/vml/io_fence/ScsiBasedIoFence.cc:492")
+process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("AcquireWriteExclusiveAccess@/home/narwhal/orcasql-mysql/storage/vml/io_fence/Scsi
+
+
+Example: more comprehensive user process tracing
+-------------------------------------------------
 in another window start: /tmp/simple
 
 
@@ -483,6 +577,38 @@ probe end
    }
 
 '
+
+
+
+Example: mega code tracing and function latency measurement
+---------------------------------------------------------------
+
+To call trace or measure a large/medium project use these steps
+
+1. update variables in stap_process_find_function_probes.py and generate the list of functions and corresponding probes.
+python3 stap_process_find_function_probes.py  > /tmp/function_probes.txt
+
+2. update verbose variable in mega-callgraph.stp and run:
+  Note: this requires about 8G memory during compilation!!
+  Adjust MAXMAPENTRIES to the number of function probes.
+sudo stap  -v -DMAXMAPENTRIES=10000 -DMAXSKIPPED=100000  mega-callgraph.stp
+Pass 1: parsed user script and 465 library scripts using 116376virt/51084res/6836shr/44696data kb, in 330usr/60sys/832real ms.
+Pass 2: analyzed script: 3400 probes, 7556 functions, 4 embeds, 2268 globals using 286136virt/222432res/8232shr/214456data kb, in 377010usr/2650sys/400102real ms.
+Pass 3: translated to C into "/tmp/stapQHy5dG/stap_d5aeeab3409fe551afedf1287cdf04a9_15083112_src.c" using 286136virt/222640res/8428shr/214456data kb, in 79320usr/490sys/79807real ms.
+/tmp/stapQHy5dG/stap_d5aeeab3409fe551afedf1287cdf04a9_15083112_src.c: In function ‘probe_8294’:
+/tmp/stapQHy5dG/stap_d5aeeab3409fe551afedf1287cdf04a9_15083112_src.c:794692:0: note: -Wmisleading-indentation is disabled from this point onwards, since column-tracking was disabled due to the size of the code/headers
+             c->actionremaining -= 2;
+ 
+Pass 4: compiled C into "stap_d5aeeab3409fe551afedf1287cdf04a9_15083112.ko" in 1010300usr/16230sys/1017915real ms.
+Pass 5: starting run.
+
+
+Sample output:- with verbose=1 and with call and return probes: process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("PerformWriteInternal").return
+->PerformWriteInternal this={.m_aioContext=0x5622867d2f00, .m_filePath={._M_dataplus={._M_p="/tmp/chunk9.raw"}, ._M_string_length=15, <union>={._M_local_buf="/tmp/chunk9.raw", ._M_allocated_capacity=8460120955416310831}}, .m_fdBuffered=9, .m_fdUnbuffered=10, .m_isBlockDevice=0} ioRequest={.ioRequestType=1, .buf="8<l\277", .numBytes=16384, .offset=184614912, .cancelled=0, .chunkHandler=0x56228679b950, .cb=0x7f6837a60ffe, .cbParam=0x7f6624000e90, .ioAttrsAndStat=0x7f6624000f60} iocb={.data=0x0, .key=0, .__pad2=0, .aio_lio_opcode=0
+
+<-PerformWriteInternal return=0x1 latency:2628 micro sec tid:5909 cpu:14
+
+
 
 What probes are available:
 -----------------------------
@@ -568,3 +694,148 @@ print_ubacktrace() If possible, print a user-space backtrace.
 
 
 ===========================================
+sudo stap -vvvv -o junk.txt /home/narwhal/linux_perf_cheatsheet/scripts/para-callgraph.stp 'process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*")' 'process("/home/narwhal/orcasql-mysql/out/runtime_output_directory/mysqld-vml").function("main")' -c "/home/narwhal/orcasql-mysql/out/runtime_output_directory/mysqld-vml > /dev/null" > junk.txt 2>junk.txt
+
+sudo stap -v  /home/narwhal/linux_perf_cheatsheet/scripts/para-callgraph.stp 'process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*")' 'process("/home/narwhal/orcasql-mysql/out/runtime_output_directory/mysqld-vml").function("main")' -c "/home/narwhal/orcasql-mysql/out/runtime_output_directory/mysqld-vml > /dev/null"
+
+WORKED:
+sudo stap -vvvvvvvvvv -o junk.txt /home/narwhal/linux_perf_cheatsheet/scripts/para-callgraph.stp 'process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*")'  -c "/home/narwhal/orcasql-mysql/out/runtime_output_directory/mysqld-vml > /dev/null" > junk.txt 2>junk.txt
+
+Works
+#sudo stap -v -e 'probe process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*").call { printf("F\n"); }'
+
+#fast works
+sudo stap -v -e 'probe process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*").call { printf("F %s\n", ppfunc()); }'
+
+# fast works
+sudo stap -v -e '
+ probe process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*").call { printf("call %s\n", ppfunc()); }
+ probe process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*").return { printf("ret %s\n", ppfunc());  }
+ '
+
+#thread_indent and thread_indent_depth very slow
+sudo stap -v -e '
+ probe process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*").call { printf("%s->call %s\n", thread_indent(1), ppfunc()); }
+ probe process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*").return { printf("%s<-  %s\n", thread_indent(1), ppfunc());  }
+ '
+
+WORKS:
+sudo stap -v /tmp/bar.stap 
+// This prints the latency of the functions
+// In verbose mode prints call trace with args and return values (set verbose=1)
+// replace /home/narwhal/orcasql-mysql/out/storage/vml/vml_client with your program
+// /home/narwhal/orcasql-mysql/out/runtime_output_directory/mysqld-vml
+// /home/narwhal/orcasql-mysql/out/storage/vml/vml_client
+global func_latency_histogram
+global func_cpu_count_map
+global syscall_tid_starttime_map
+global verbose
+
+probe begin {
+    verbose = 1;
+}
+
+// probe process("/home/narwhal/orcasql-mysql/out/runtime_output_directory/mysqld-vml").begin {
+//    delete func_latency_histogram
+//    delete func_cpu_count_map
+//    delete syscall_tid_starttime_map
+// }
+// probe process("/home/narwhal/orcasql-mysql/out/runtime_output_directory/mysqld-vml").library("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*").call {
+//    if(verbose) {
+//       indent = thread_indent_depth(1);
+//       for(count=0; count < indent; count++) printf(" "); 
+//       printf("->%s %s\n", ppfunc(), $$parms$$);
+//    }
+// }
+
+function indent_spaces(indent) {
+      for(count=0; indent >0 && count < indent; count++) printf(" ");
+}
+function function_completes(func_name, latency, tid, cpu) {
+   //latency = gettimeofday_ns() ;//- @entry(gettimeofday_ns());
+   latency = latency/1000 // micro seconds
+   indent = thread_indent_depth(-1);
+   func_latency_histogram[func_name] <<< latency;
+   func_cpu_count_map[func_name, cpu] += 1 // keep track of the cpu where this function ran
+   if(verbose) {   
+      indent_spaces(indent)
+      printf("<-%s latency:%d ms tid:%d cpu:%d\n", func_name, latency, tid, cpu);
+   }
+      
+}
+probe process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*").call {
+   indent = thread_indent_depth(1);
+}
+probe process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*").return {
+ function_completes(ppfunc(), gettimeofday_ns(), tid(), cpu());
+}
+
+
+// probe process("/home/narwhal/orcasql-mysql/out/runtime_output_directory/mysqld-vml").library("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").syscall {
+//    syscall_tid_starttime_map[syscall_name($syscall), tid()] = gettimeofday_ns()
+//    thread_indent_depth(1);
+// }
+
+// probe process("/home/narwhal/orcasql-mysql/out/runtime_output_directory/mysqld-vml").library("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").syscall.return {
+//    start_time = syscall_tid_starttime_map[syscall_name($syscall), tid()];
+//    syscall_latency =  gettimeofday_ns() - start_time;
+//    indent = thread_indent_depth(-1);
+//    if(syscall_latency>0)
+//       if(verbose) {   
+//       for(count=0; count < indent; count++) printf(" ");
+//       printf("<-%s latency:%d us\n", syscall_name($syscall), syscall_latency/1000);
+//    }
+
+// }
+
+probe end {
+//probe process("/home/narwhal/orcasql-mysql/out/runtime_output_directory/mysqld-vml").end {
+    foreach (func_name in func_latency_histogram) {
+        printf("\n>>>>>>> %s latency micro sec. min/avg/max:%d/%d/%d count:%d\n", func_name, @min(func_latency_histogram[func_name]),@avg(func_latency_histogram[func_name]),@max(func_latency_histogram[func_name]), @count(func_latency_histogram[func_name]))
+        println(@hist_log(func_latency_histogram[func_name]));
+
+        foreach ([my_func_name, cpu] in func_cpu_count_map) {
+            if(my_func_name == func_name)
+            printf("cpu:%d count:%d\n", cpu, func_cpu_count_map[func_name, cpu])
+        }
+   }
+
+   
+}
+
+
+
+narwhal@narwhal:~/linux_perf_cheatsheet/scripts$ sudo stap -l 'process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*")'
+process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("<lambda>@/home/narwhal/orcasql-mysql/storage/vml/backup/VmlBackup.cc:657")
+process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("APPEND_CHAIN@/home/narwhal/orcasql-mysql/extra/libevent/buffer.c:884")
+process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("APPEND_CHAIN_MULTICAST@/home/narwhal/orcasql-mysql/extra/libevent/buffer.c:903")
+process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("AbortTx@/home/narwhal/orcasql-mysql/storage/vml/metadata/SQLMetadataStorage.cc:675")
+process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("AbortTx@/home/narwhal/orcasql-mysql/storage/vml/metadata/UndurableStorage.cc:340")
+process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("Acquire@/home/narwhal/orcasql-mysql/storage/vml/io_fence/FileLockBasedIoFence.cc:28")
+process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("Acquire@/home/narwhal/orcasql-mysql/storage/vml/io_fence/IoFenceManager.cc:25")
+process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("Acquire@/home/narwhal/orcasql-mysql/storage/vml/io_fence/ScsiBasedIoFence.cc:492")
+process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("AcquireWriteExclusiveAccess@/home/narwhal/orcasql-mysql/storage/vml/io_fence/Scsi
+
+
+
+This works
+I thing you can use $1 for this /home/narwhal/orcasql-mysql/out/storage/vml/libvml.so
+sudo stap -e 'probe process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("CheckandSetAioFsyncSupport"),process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("ChunkHandlerIoCallback") {}'
+
+
+
+
+
+sudo stap -l 'process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*")' | grep "@/home/narwhal/orcasql-mysql/storage/vml/" | grep -v "function(\"operator"| grep -v "<" | grep -v ">" | grep -v ".function(\"_"  | grep -v ".function(\"<" | python -c "import sys,re;[sys.stdout.write(re.sub('@.*:\d+', '', line)) for line in sys.stdin]" | tr '\n', ',' > j.txt
+
+sudo stap -l 'process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*")' | grep "@/home/narwhal/orcasql-mysql/storage/vml/" | grep -v "function(\"operator"| grep -v "<" | grep -v ">" | grep -v ".function(\"_"  | grep -v ".function(\"<"  |  python -c $'import sys,re;\nfor line in sys.stdin:\n\toutput=re.sub("@.*:\d+", "", line);output=output.rstrip();print(output+".return")\n\t' | tr '\n', ',' > j1.txt
+
+WORKS:
+sudo stap -l 'process("/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so").function("*")' | grep "@/home/narwhal/orcasql-mysql/storage/vml/" | grep -v "function(\"operator"| grep -v "<" | grep -v ">" | grep -v ".function(\"_"  | grep -v ".function(\"<"  |  python -c $'import sys,re;\nfor line in sys.stdin:\n\toutput=re.sub("@.*:\d+", "", line);output=output.rstrip();print(output+".return")\n\t' | tr '\n', ',' > j1.txt
+
+
+
+
+
+
+
