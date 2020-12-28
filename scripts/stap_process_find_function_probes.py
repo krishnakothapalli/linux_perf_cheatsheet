@@ -7,10 +7,10 @@ import sys;
 import subprocess;
 
 # replace path name of your code
-my_code_dir="/home/narwhal/orcasql-mysql/storage/vml/"
+my_code_dir="/home/narwhal/linux_perf_cheatsheet"
 
-# replace your library name
-my_process_name = "/home/narwhal/orcasql-mysql/out/storage/vml/libvml.so"
+# replace your library name or program name
+my_process_name = "/tmp/simple"
 
 # update this with your list
 ignore_function_set = ("Start", "Pop", "AioEvents", "weak_io_getevents", "StopRequested", "test_and_set", "set", "~set", "event_base_set", "event_set", "fetch_sub", "fetch_add", "fetch_or", "dup", "set", "APPEND_CHAIN", "APPEND_CHAIN_MULTICAST", "unlock", "lock", "assert_owner", "owns_lock")
