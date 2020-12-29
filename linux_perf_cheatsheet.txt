@@ -568,13 +568,13 @@ man perf-probe
 https://www.percona.com/sites/default/files/ple19-slides/day1-pm/tracing-and-profiling-mysql.pdf
 
 Adding uprobes to MySQL dynamically with perf
-● The idea was to add dynamic probe to capture SQL queries
-● This was done on Ubuntu 16.04 with recent Percona Server 5.7
-● First I had to find out with gdb where is the query (hint: dispatch_command
+ The idea was to add dynamic probe to capture SQL queries
+ This was done on Ubuntu 16.04 with recent Percona Server 5.7
+ First I had to find out with gdb where is the query (hint: dispatch_command
 has com_data parameter):
 (gdb) p com_data->com_query.query
 $4 = 0x7fb0dba8d021 "select 2"
-● Then it’s just as easy as follows:
+ Then its just as easy as follows:
 openxs@ao756:~$ sudo perf probe -x /usr/sbin/mysqld 'dispatch_command
 com_data->com_query.query:string'
 openxs@ao756:~$ sudo perf record -e 'probe_mysqld:dispatch_command*' -aR
@@ -597,7 +597,7 @@ $ sudo snap connect bpftrace:system-trace
 
 (not needed
 https://www.flagword.net/2020/03/my-experience-with-kernel-lockdown-and-ebfp/
-As a dirty hack I’ve used Alt+SysRq option so far. Btw, to initiate Alt+SysRq on Dell 7390 I had to:
+As a dirty hack Ive used Alt+SysRq option so far. Btw, to initiate Alt+SysRq on Dell 7390 I had to:
 1. Press Fn+Esc to enable function keys
 2. Press Alt+PrtScr+x to disable lockdown
 
@@ -625,6 +625,7 @@ In Ubuntu distro works only for user process, not for kernel. "However, SystemTa
 Ref: https://sourceware.org/systemtap/langref/ GOOD one
      https://sourceware.org/systemtap/SystemTap_Beginners_Guide/
      all functions https://manpages.debian.org/testing/systemtap-doc/index.html
+     https://sourceware.org/systemtap/examples/index.html good examples
 
 Example: Print call trace
 -------------------------------
@@ -803,7 +804,7 @@ sudo stap -g --suppress-time-limits -v -DMAXMAPENTRIES=10000 -DMAXSKIPPED=100000
 Pass 1: parsed user script and 465 library scripts using 116376virt/51084res/6836shr/44696data kb, in 330usr/60sys/832real ms.
 Pass 2: analyzed script: 3400 probes, 7556 functions, 4 embeds, 2268 globals using 286136virt/222432res/8232shr/214456data kb, in 377010usr/2650sys/400102real ms.
 Pass 3: translated to C into "/tmp/stapQHy5dG/stap_d5aeeab3409fe551afedf1287cdf04a9_15083112_src.c" using 286136virt/222640res/8428shr/214456data kb, in 79320usr/490sys/79807real ms.
-/tmp/stapQHy5dG/stap_d5aeeab3409fe551afedf1287cdf04a9_15083112_src.c: In function ‘probe_8294’:
+/tmp/stapQHy5dG/stap_d5aeeab3409fe551afedf1287cdf04a9_15083112_src.c: In function probe_8294:
 /tmp/stapQHy5dG/stap_d5aeeab3409fe551afedf1287cdf04a9_15083112_src.c:794692:0: note: -Wmisleading-indentation is disabled from this point onwards, since column-tracking was disabled due to the size of the code/headers
              c->actionremaining -= 2;
  
@@ -832,6 +833,78 @@ function:io_thread_function, latency microsec mean:109169027, variance:191680228
 function:main, latency microsec mean:109219953, variance:0 std-dev:sqrt(0) count:1 total:109219953  WATCH THIS
 
 
+GOOD Show Time Spent on Each Line of a Function
+---------------------------------------------
+Ref: https://sourceware.org/systemtap/examples/index.html#profiling/linetimes.stp
+Modified code a bit and it is under scripts/linetimes.stp
+
+Eg., here is a sample function with line numbers. A few line times are annotated 
+
+ 90void f4(int d) {
+ 91  f3(d);                     
+ 92  pthread_mutex_lock(&mutex1);
+ 93  sleep(1);
+ 94  pthread_mutex_unlock(&mutex1);
+ 95
+ 96  pthread_mutex_lock(&mutex2);
+ 97  sleep(2);
+ 98  pthread_mutex_unlock(&mutex2);
+ 99
+100  pthread_mutex_lock(&mutex3); <-- Avg latency is 2387387 us, max latency 2686463 us
+101  sleep(3);                    <-- Avg latency is 3000163 us, max latency is 3000198 us
+102  pthread_mutex_unlock(&mutex3); <-- avg(us):74 max: 99
+103}
+
+$sudo stap linetimes.stp "/tmp/simple" "f4" -c '/tmp/simple'
+io_threads are running ...
+cpu_threads are running ...
+
+/tmp/simple f4 call count: 37
+
+region                                                                                      avg(us)    max(us)
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:100")    2387387    2686463
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:101")    3000163    3000198
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:102")         74         99
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:103")         10         18
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:90")         17         50
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:91")     484091     538079
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:92")      71023    1792180
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:93")    1000154    1000179
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:94")         36         79
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:96")      81096    2000029
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:97")    2000150    2000166
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:98")         33         78
+
+
+control flow graph information
+from
+        to
+=======================
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:100")
+        process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:101") 35
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:101")
+        process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:102") 34
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:102")
+        process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:103") 34
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:103")
+        process("/tmp/simple").function("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:90").return 34
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:90")
+        process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:91") 37
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:91")
+        process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:92") 37
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:92")
+        process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:93") 37
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:93")
+        process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:94") 37
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:94")
+        process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:96") 37
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:96")
+        process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:97") 37
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:97")
+        process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:98") 36
+process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:98")
+        process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:100") 36
+krishna@krishna:~/linux_perf_cheatsheet/scripts$ 
 
 What probes are available:
 -----------------------------
