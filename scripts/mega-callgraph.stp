@@ -91,7 +91,7 @@ probe process("/tmp/simple").begin {
 }
 
 //probe process("/tmp/simple").function("*").call
-probe process("/tmp/simple").function("cpu_thread_function"),process("/tmp/simple").function("f1"),process("/tmp/simple").function("f2"),process("/tmp/simple").function("f3"),process("/tmp/simple").function("io_thread_function"),process("/tmp/simple").function("isPrime"),process("/tmp/simple").function("main"),process("/tmp/simple").function("sigint_handler")
+probe process("/tmp/simple").function("f4")
 {
   if (verbose) {
     indent = thread_indent_depth(1);
@@ -102,7 +102,7 @@ probe process("/tmp/simple").function("cpu_thread_function"),process("/tmp/simpl
 }
 
 // probe process("/tmp/simple").function("*").return
-probe process("/tmp/simple").function("cpu_thread_function").return,process("/tmp/simple").function("f1").return,process("/tmp/simple").function("f2").return,process("/tmp/simple").function("f3").return,process("/tmp/simple").function("io_thread_function").return,process("/tmp/simple").function("isPrime").return,process("/tmp/simple").function("main").return,process("/tmp/simple").function("sigint_handler").return
+probe process("/tmp/simple").function("f4").return
 {
 
   latency = 0;

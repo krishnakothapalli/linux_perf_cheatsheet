@@ -7,13 +7,13 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#include <cmath>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <cmath>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -69,7 +69,7 @@ void f1(int c) {
   for (int i = 0; i > 0; i++) {
     i = i + 1;
   }
-  //printf(".");
+  // printf(".");
   int primeCount = 0;
   for (int i = 0; i < 1000000; ++i) {
     if (isPrime(i)) {
@@ -80,28 +80,32 @@ void f1(int c) {
 
 void f2(int b) {
   f1(b + 1);
-  //printf(".");
+  // printf(".");
 }
 void f3(int a) {
   f2(a + 1);
-  printf(".");
+  // printf(".");
+}
+
+void f4(int d) {
+  f3(d);
+  pthread_mutex_lock(&mutex1);
+  sleep(1);
+  pthread_mutex_unlock(&mutex1);
+
+  pthread_mutex_lock(&mutex2);
+  sleep(2);
+  pthread_mutex_unlock(&mutex2);
+
+  pthread_mutex_lock(&mutex3);
+  sleep(3);
+  pthread_mutex_unlock(&mutex3);
 }
 void *cpu_thread_function(void *vargp) {
   uint32_t my_num = (*(uint32_t *)vargp);
 
   for (int loop_count = 0; loop_count < LOOP_COUNT; loop_count++) {
-    f3(20);
-    pthread_mutex_lock(&mutex1);
-    sleep(1);
-    pthread_mutex_unlock(&mutex1);
-
-    pthread_mutex_lock(&mutex2);
-    sleep(2);
-    pthread_mutex_unlock(&mutex2);
-
-    pthread_mutex_lock(&mutex3);
-    sleep(3);
-    pthread_mutex_unlock(&mutex3);
+    f4(loop_count);
   }
 }
 
