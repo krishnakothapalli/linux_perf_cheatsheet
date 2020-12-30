@@ -9,7 +9,9 @@ Ref: man top
         |    time since last boot                    |
         |         |                                  |
         v         v                                  v
-top - 08:54:25 up 37 days,  8:58, 11 users,  load average: 1.77, 0.57, 0.19 
+
+top - 08:54:25 up 37 days,  8:58, 11 users,  load average: 1.77, 0.57, 0.19
+
 Tasks: 321 total,   1 running, 204 sleeping,   0 stopped,   0 zombie
         ^ 
        total tasks or threads         time waiting for I/O completion (disk)
@@ -17,23 +19,31 @@ Tasks: 321 total,   1 running, 204 sleeping,   0 stopped,   0 zombie
                                      |         |       time spent servicing hardware interrupts
                                      |         |        |
                                      v         v        v
+                                     
 %Cpu(s):  4.9 us,  1.5 sy,  0.0 ni, 93.6 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st <-+
+                                                                                  |
           ^           ^       ^niced user processes              ^        time stolen from this vm by the hypervisor
           |           |                                          |
           |       time kernel processes                   time spent servicing software interrupts
          time running un-niced user processes                         cache: read from the disk
-                                                                       v 
+                                                                       v
+                                                                       
 KiB Mem : 24210912 total,  7884172 free,  2635336 used, 13691404 buff/cache
+
 ^          ^                                                      ^ 
 |         total = free + used +  buff/cache                 buffers:yet to be written to disk
 Physical memory in KiB(kibibyte) = 1024 bytes
 KiB Swap:        0 total,        0 free,        0 used. 21357152 avail Mem 
 
-task's priority. From -20 to 19, with -20 being most important
+Task's priority. From -20 to 19, with -20 being most important
                 |  Niceness: -20 (most favorable) to 19 (least favorable ).
-                v   v
+                |   |     Everything in-use and/or reserved 
+                |   |     |       RES: occupying physical memory
+                |   |     |        |                  %physical memory
+                v   v     v        v                   v
+
   PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND                                                
-31194 krishna   20   0  357412  45168  12188 S 104.3  0.2   2:57.76 handler_perf_te                                        
+31194 krishna   20   0  357412  45168  12188 S 104.3  0.2   2:57.76 handler_perf_te <-- CPU 104% out 1600% (16 cores)      
 31192 krishna   20   0   42924   4180   3396 R   0.7  0.0   0:00.76 top                                                    
 31130 krishna   20   0  330372  38348  19236 S   0.3  0.2   0:01.67 emacs                                                  
     1 root      20   0   78156   6544   3916 S   0.0  0.0   0:59.73 systemd                                                
@@ -55,6 +65,79 @@ task's priority. From -20 to 19, with -20 being most important
    20 root      20   0       0      0      0 S   0.0  0.0   0:00.00 cpuhp/2                                                
    21 root      rt   0       0      0      0 S   0.0  0.0   0:09.78 watchdog/2                                             
    22 root      rt   0       0      0      0 S   0.0  0.0   0:00.83 migration/2                                            
+
+
+           The status of the task which can be one of:
+               D = uninterruptible sleep
+               R = running
+               S = sleeping
+               T = stopped by job control signal
+               t = stopped by debugger during trace
+               Z = zombie
+
+
+- load average is very roughly (number of process that need to run / number of CPU cores)
+  and measures how overloaded a server is.
+- A simple rule of thumb: If the 15 min load average exceeds
+   0.7 (after dividing by the number of CPU cores), then the server may be overloaded.
+
+Some keys
+---------
+H - displays threads (GOOD)
+
+  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND                                    SWAP
+  20351 krishna   20     9686912 450672  62500 S 20.1  1.9 780:05.43 mysqld
+  20350 krishna   20     9686912 450672  62500 R 18.8  1.9 772:32.13 mysqld
+  20343 krishna   20     9686912 450672  62500 S 18.4  1.9 779:22.46 mysqld
+  20346 krishna   20     9686912 450672  62500 S 18.1  1.9 780:28.93 mysqld
+  20349 krishna   20     9686912 450672  62500 S 18.1  1.9 783:59.11 mysqld
+  20342 krishna   20     9686912 450672  62500 S 17.1  1.9 771:57.36 mysqld
+  20344 krishna   20     9686912 450672  62500 S 17.1  1.9 777:53.31 mysqld
+  20347 krishna   20     9686912 450672  62500 S 17.1  1.9 777:07.96 mysqld
+  20345 krishna   20     9686912 450672  62500 S 16.1  1.9 770:59.48 mysqld
+  20348 krishna   20     9686912 450672  62500 S 16.1  1.9 778:22.14 mysqld
+
+  
+0 - does not display) '0's in the output
+    (this reduces screen clutter)
+
+1 - shows multiple CPUs (toggle)
+Eg.,
+%Cpu0  :  0.3 us,  1.7 sy,  0.0 ni, 98.0 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+%Cpu1  :  5.2 us,  2.8 sy,  0.0 ni, 92.0 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+%Cpu2  :  0.0 us,  0.0 sy,  0.0 ni,100.0 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+%Cpu3  :  0.3 us,  0.3 sy,  0.0 ni, 99.3 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+
+2 - shows NUMA Node
+%Cpu(s):  1.5 us,  2.1 sy,  0.0 ni, 96.5 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+%Node0 :  1.1 us,  1.3 sy,  0.0 ni, 97.5 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+%Node1 :  2.0 us,  2.8 sy,  0.0 ni, 95.3 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+
+
+3 - displays a specific NUMA node
+ eg., press 1(show cpus), 3(display specific NUMA node) & 1 (show NUMA node 1)
+ %Node1 :  2.0 us,  3.4 sy,  0.0 ni, 94.6 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+ %Cpu8  :  3.7 us,  3.7 sy,  0.0 ni, 92.6 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+ %Cpu9  :  1.6 us,  4.7 sy,  0.0 ni, 93.7 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+ %Cpu10 :  1.5 us,  1.5 sy,  0.0 ni, 96.9 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+ %Cpu11 :  0.7 us,  3.0 sy,  0.0 ni, 96.3 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+ %Cpu12 :  1.5 us,  4.5 sy,  0.0 ni, 94.0 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+ %Cpu13 :  3.1 us,  3.8 sy,  0.0 ni, 93.1 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+ %Cpu14 :  1.6 us,  2.3 sy,  0.0 ni, 96.1 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+ %Cpu15 :  2.2 us,  3.7 sy,  0.0 ni, 94.1 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+ 
+
+f  :Fields-Management These  keys display a separate screen where you can change which fields are displayed
+
+
+SORTING 
+--------
+                command   sorted-field
+                M         %MEM        
+                N         PID         
+                P         %CPU        
+                T         TIME+       
+
 
 ==================================================================
 * /proc/meminfo
@@ -642,7 +725,175 @@ isPrime  /tmp/simple
 Similar output can be obtained by this (can be done in emacs):-
   sudo perf annotate --stdio isPrime | cat
 
+
+How to profile only a library
+-----------------------------
+Ref: https://stackoverflow.com/questions/61323185/profiling-dynamic-library-in-linux-using-perf
+
+Pick the application/process and profile it.
+ $ sudo perf record -p 20261 
+ ^C[ perf record: Woken up 4 times to write data ]
+ [ perf record: Captured and wrote 3.690 MB perf.data (70750 samples) ]
+
+Then filter the library as follows:
+-  focus on shared library dso in interactive "perf report" (find any sample from the library,
+   open menu and select focus on library.so; ).
+
+- perf report -d library.so
+
+- You can also filter samples decoded from perf.data file like perf script | grep library.so | less
+
+Eg.,
+$  perf report -d libfoo.so -f --stdio 
+[kernel.kallsyms] with build id ad19d53bdea8ee4257152fc235936d61a6529a01 not found, continuing without symbols
+[vdso] with build id 6b07cfe7b86149f0a2ec51a362bc78486cc1f77e not found, continuing without symbols
+# To display the perf.data header info, please use --header/--header-only options.
+#
+# dso: libfoo.so
+#
+# Total Lost Samples: 0
+#
+# Samples: 70K of event 'cpu-clock'
+# Event count (approx.): 17687500000
+#
+# Overhead  Command     Symbol                                                                                    # ........  ..........  ..........................................................................................#
+     0.75%  mysqld-foo  [.] foo_io_getevents
+     0.32%  mysqld-foo  [.] std::_Deque_iterator<io_event, io_event&, io_event*>::_Deque_iterator
+     0.20%  mysqld-foo  [.] std::chrono::__duration_cast_impl<std::chrono::duration<unsigned long, std::ratio<1l,      0.19%  mysqld-foo  [.] std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long, st     0.17%  mysqld-foo  [.] std::chrono::operator-<std::chrono::_V2::steady_clock, std::chrono::duration<long, std     0.17%  mysqld-foo  [.] std::chrono::duration<unsigned long, std::ratio<1l, 1000000000l> >::duration<long, std     0.16%  mysqld-foo  [.] foo::DispatcherWorkItem::Lock
+     0.15%  mysqld-foo  [.] std::chrono::duration<unsigned long, std::ratio<1l, 1000000000l> >::count
+     0.07%  mysqld-foo  [.] std::lock_guard<std::mutex>::~lock_guard@plt
+     0.07%  mysqld-foo  [.] std::deque<io_event, std::allocator<io_event> >::end
+     0.06%  mysqld-foo  [.] std::chrono::duration<unsigned long, std::ratio<1l, 1000000000l> >::duration<unsigned      0.06%  mysqld-foo  [.] std::chrono::duration_cast<std::chrono::duration<unsigned long, std::ratio<1l, 1000000     0.05%  mysqld-foo  [.] std::deque<io_event, std::allocator<io_event> >::begin
+     0.05%  mysqld-foo  [.] std::operator==<io_event, io_event&, io_event*>
+     0.04%  mysqld-foo  [.] std::chrono::_V2::steady_clock::now@plt
+     0.04%  mysqld-foo  [.] std::operator!=<io_event, io_event&, io_event*>
+     0.02%  mysqld-foo  [.] std::chrono::duration_cast<std::chrono::duration<unsigned long, std::ratio<1l, 1000000     0.02%  mysqld-foo  [.] std::chrono::duration<long, std::ratio<1l, 1000000000l> >::count@plt
+     0.02%  mysqld-foo  [.] std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long, st     0.02%  mysqld-foo  [.] std::this_thread::sleep_for<long, std::ratio<1l, 1000000l> >@plt
+     0.01%  mysqld-foo  [.] std::chrono::duration<long, std::ratio<1l, 1000000l> >::duration<int, void>@plt
+     0.01%  mysqld-foo  [.] std::chrono::duration<unsigned long, std::ratio<1l, 1000000000l> >::count@plt
+     
+
+Perf Tracing - painful for C++ not good
+--------------------------------------------
+
+perf-probe - Define new dynamic tracepoints
+Ref: https://linux.die.net/man/1/perf-probe
+
+Step 1: list all functions in program /tmp/simple or library
+..................................................................
+$ sudo perf probe --funcs --exec /tmp/simple 
+..
+f1
+f2
+f3
+f4
+frame_dummy
+io_thread_function
+isPrime
+main
+..
+
+http://mysqlentomologist.blogspot.com/2020/07/dynamic-tracing-of-c-class-member.html
+$sudo perf probe --funcs --exec  /home/krishna/orcasql-mysql/out/runtime_output_directory/libvml.so| grep FileChunk
+vml::FileChunkHandlerLinux::PerformFlushInternal
+vml::FileChunkHandlerLinux::PerformIoInternal
+vml::FileChunkHandlerLinux::PerformReadInternal
+
+
+
+Step 2:
+sudo perf probe  -f --exec /tmp/simple --add='f2 b'
+Added new event:
+  probe_simple:f2      (on f2 in /tmp/simple with b)
+
+perf record -e probe_simple:f2 -aR sleep 1000
+
+$ sudo perf probe  -x /tmp/simple --line f1 | cat
+sudo perf probe  -x /tmp/simple --line f1 | cat
+<f1@/home/krishna/linux_perf_cheatsheet/simple.cc:0>
+      0  void f1(int c) {
+           C1 c1;
+      2    c1.m1 = 1;
+      3    c1.m2 = 2;
+      4    c1.m3 = 3;
+      5    for (int i = 0; i > 0; i++) {
+      6      i = i + 1;
+           }
+           // printf(".");
+      9    int primeCount = 0;
+     10    for (int i = 0; i < 1000000; ++i) {
+     11      if (isPrime(i)) {
+     12        ++primeCount;
+             }
+           }
+     15  }
+         
+         void f2(int b) {
+           f1(b + 1);
+
+sudo perf probe --exec /tmp/simple --vars f1
+sudo perf probe --exec /tmp/simple --vars f1
+WARNING: terminal is not fully functional
+-  (press RETURN) 
+Available variables at f1
+        @<f1+0>
+                C1      c1
+                int     c
+                int     primeCount
+
+
+krishna@krishna:~/linux_perf_cheatsheet$ krishna@krishna:~/linux_perf_cheatsheet$ sudo perf probe --funcs --no-demangle --exec  /home/krishna/orcasql-mysql/out/runtime_output_directory/libvml.so | grep Internal
+krishna@krishna:~/linux_perf_cheatsheet$ 
+krishna@krishna:~/linux_perf_cheatsheet$ 
+krishna@krishna:~/linux_perf_cheatsheet$ sudo perf probe --funcs --no-demangle --filter='*' --exec  /home/krishna/orcasql-mysql/out/runtime_output_directory/libvml.so | grep Internal
+_ZN3vml15MemChunkHandler17PerformIoInternalEPKNS_9IoRequestE
+_ZN3vml16NamespaceManager16AllocateInternalEPNS_17FileChangeContextE
+_ZN3vml16NamespaceManager16MoveFileInternalEPNS_15FileMoveContextEb
+_ZN3vml16NamespaceManager18CreateFileInternalEPNS_17FileCreateContextE
+_ZN3vml16NamespaceManager18DeallocateInternalEPNS_17FileChangeContextE
+_ZN3vml16NamespaceManager18DeleteFileInternalEPNS_17FileDeleteContextEb
+_ZN3vml16NamespaceManager19CloseHandleInternalEPNS_18CloseHandleContextEb
+_ZN3vml16NamespaceManager25LookupReadContextInternalEPNS_13FileIOContextE
+_ZN3vml16NamespaceManager26LookupFlushContextInternalEPNS_13FileIOContextE
+_ZN3vml16NamespaceManager26LookupWriteContextInternalEPNS_13FileIOContextE
+_ZN3vml16TestChunkHandler17PerformIoInternalEPKNS_9IoRequestE
+_ZN3vml21AzureFileChunkHandler17PerformIoInternalEPKNS_9IoRequestE
+_ZN3vml21FileChunkHandlerLinux17PerformIoInternalEPKNS_9IoRequestE
+_ZN3vml21FileChunkHandlerLinux19PerformReadInternalEPKNS_9IoRequestEP4iocbi
+_ZN3vml21FileChunkHandlerLinux20PerformFlushInternalEPKNS_9IoRequestEP4iocbi
+_ZN3vml21FileChunkHandlerLinux20PerformWriteInternalEPKNS_9IoRequestEP4iocbi
+krishna@krishna:~/linux_perf_cheatsheet$ 
+krishna@krishna:~/linux_perf_cheatsheet$ sudo perf probe  -x /tmp/simple --line "_ZN3vml21FileChunkHandlerLinux17PerformIoInternalEPKNS_9IoRequestE" | cat
+Specified source line is not found.
+  Error: Failed to show lines.
+krishna@krishna:~/linux_perf_cheatsheet$ sudo perf probe  -x /tmp/simple --line _ZN3vml21FileChunkHandlerLinux17PerformIoInternalEPKNS_9IoRequestE | cat
+Specified source line is not found.
+  Error: Failed to show lines.
+krishna@krishna:~/linux_perf_cheatsheet$ sudo perf probe  -x /tmp/simple --line _ZN3vml21FileChunkHandlerLinux17PerformIoInternalEPKNS_9IoRequestE | cat
+Specified source line is not found.
+  Error: Failed to show lines.
+
+
+sudo perf probe  -f --exec /tmp/simple --add='f1:9 c1'
+C1 exceeds max-bitwidth. Cut down to 64 bits.
+Added new event:
+  probe_simple:f1_2    (on f1:9 in /tmp/simple with c1)
+
+You can now use it in all perf tools, such as:
+
+	perf record -e probe_simple:f1_2 -aR sleep 1
+
+
+
 ------------------
+
+$ more /boot/config-4.15.0-123-generic | grep UPROBE
+more /boot/config-4.15.0-123-generic | grep UPROBE
+CONFIG_ARCH_SUPPORTS_UPROBES=y
+CONFIG_UPROBES=y
+CONFIG_UPROBE_EVENTS=y
+
+CONFIG_FTRACE=y
 
 man perf-probe
 
@@ -656,6 +907,33 @@ man perf-probe
 
 
 
+sudo perf probe -l
+sudo perf probe -l
+WARNING: terminal is not fully functional
+-  (press RETURN) 
+  probe_simple:f4      (on f4@simple.cc in /tmp/simple)
+krishna@krishna:~/linux_perf_cheatsheet$ krishna@krishna:~/linux_perf_cheatsheet$ history | grep f4
+history | grep f4
+ 1771  perf probe -x /tmp/simple  f4
+ 1772  sudo perf probe -x /tmp/simple  f4
+ 1773  bpftrace -e 'uprobe:/tmp/simple:f4 { printf("FOO\n"); }'
+ 1774  sudo bpftrace -e 'uprobe:/tmp/simple:f4 { printf("FOO\n"); }'
+ 1775  perf record -e probe_simple:f4 -aR sleep 20
+ 1776  sudo perf record -e probe_simple:f4 -aR sleep 20
+ 1795  history | grep f4
+
+
+sudo perf script
+sudo perf script
+WARNING: terminal is not fully functional
+-  (press RETURN) 
+          simple 35812 [009] 252606.865870: probe_simple:f4: (55d560117290)
+          simple 35821 [000] 252615.987043: probe_simple:f4: (55d00b17f290)
+          simple 35823 [009] 252615.987849: probe_simple:f4: (55d00b17f290)
+          simple 35825 [011] 252615.988241: probe_simple:f4: (55d00b17f290)
+          simple 35825 [011] 252622.330311: probe_simple:f4: (55d00b17f290)
+          simple 35823 [009] 252625.330479: probe_simple:f4: (55d00b17f290)
+          
 https://www.percona.com/sites/default/files/ple19-slides/day1-pm/tracing-and-profiling-mysql.pdf
 
 Adding uprobes to MySQL dynamically with perf
@@ -679,34 +957,65 @@ openxs@ao756:~$ sudo perf probe --del dispatch_command
 
 * bpftrace
 
+ bpftrace  is  a high-level tracing language for Linux enhanced Berkeley Packet Filter (eBPF) available in recent Linux kernels (4.x).
+
+       ┌─────────┬─────────────┬──────────────┐
+       │         │   kernel    │   userland   │
+       ├─────────┼─────────────┼──────────────┤
+       │ static  │ tracepoints │ USDT* probes │
+       ├─────────┼─────────────┼──────────────┤
+       │ dynamic │   kprobes   │   uprobes    │
+       └─────────┴─────────────┴──────────────┘
+       USDT = user-level statically defined tracing
+       static - are predefined probes in the code already
+       dynamic - you can add probes at runtime (with out modifying the code).
+       The bpftrace language is inspired by awk and C, and predecessor tracers such as DTrace and SystemTap.
+
 Installation
 -------------
-Ref: https://snapcraft.io/install/bpftrace/ubuntu
-$ sudo snap install bpftrace
-$ sudo snap connect bpftrace:system-trace
+Ref: https://github.com/iovisor/bpftrace/blob/master/INSTALL.md
+For Ubuntu 18.04 (for 19.04 simpler)
+sudo apt-get update
+sudo apt-get install -y bison cmake flex g++ git libelf-dev zlib1g-dev libfl-dev systemtap-sdt-dev binutils-dev
+sudo apt-get install -y llvm-7-dev llvm-7-runtime libclang-7-dev clang-7
+git clone https://github.com/iovisor/bpftrace
+mkdir bpftrace/build; cd bpftrace/build;
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make -j8
+sudo make install
 
-(not needed
-https://www.flagword.net/2020/03/my-experience-with-kernel-lockdown-and-ebfp/
-As a dirty hack Ive used Alt+SysRq option so far. Btw, to initiate Alt+SysRq on Dell 7390 I had to:
-1. Press Fn+Esc to enable function keys
-2. Press Alt+PrtScr+x to disable lockdown
+krishna@krishna  /linux_perf_cheatsheet$ sudo bpftrace -e 'uprobe:/tmp/simple:f4 { printf("f4: %d\n", arg1); }'
+Attaching 1 probe...
+f4: 0
+f4: 0
+f4: 0
+f4: 0
 
 
-bpftrace -e 'u:/lib/x86_64-linux-gnu/libc-2.27.so:malloc { @[ustack(5)] = sum(arg0); }'
+list probes?
+-----------------
+$ sudo bpftrace -l 'uprobe:/tmp/simple'
+uprobe:/tmp/simple:_GLOBAL__sub_I_debug
+uprobe:/tmp/simple:_Z14sigint_handleri
+uprobe:/tmp/simple:_Z18io_thread_functionPv
+uprobe:/tmp/simple:_Z19cpu_thread_functionPv
+uprobe:/tmp/simple:_Z2f1i
+uprobe:/tmp/simple:_Z2f2i
+uprobe:/tmp/simple:_Z2f3i
+uprobe:/tmp/simple:_Z2f4i
+uprobe:/tmp/simple:_Z41__static_initialization_and_destruction_0ii
+uprobe:/tmp/simple:_Z7isPrimei
+uprobe:/tmp/simple:_ZSt4sqrtIiEN9__gnu_cxx11__enable_ifIXsrSt12__is_integerIT_E7__valueEdE6__typeES3_
 
-Code needs to be instrumented
 Ref:
+man bpftrace
 https://github.com/iovisor/bpftrace
+https://github.com/iovisor/bpftrace/blob/master/docs/reference_guide.md GOOD
+http://www.brendangregg.com/BPF/bpftrace-cheat-sheet.html
 https://github.com/iovisor/bpftrace/blob/master/docs/tutorial_one_liners.md
 https://www.percona.com/sites/default/files/presentations/Scale18x-2020-bpfTrace-finally-dTrace-replacement.pdf
 https://www.joyfulbikeshedding.com/blog/2019-01-31-full-system-dynamic-tracing-on-linux-using-ebpf-and-bpftrace.html#usdt-probe-example
 
-bpftrace -e 'uprobe:/tmp/simple:_Z19cpu_thread_functionPv { printf("%d\n", str(arg1)); }'
-
-bpftrace -e 'uprobe:/tmp/simple:_Z19cpu_thread_functionPv { printf("FOO\n"); }'
-
-See?? https://github.com/iovisor/bpftrace/blob/master/docs/reference_guide.md#3-uprobeuretprobe-dynamic-tracing-user-level
-uprobe/uretprobe: Dynamic Tracing, User-Level
 
 
 ===========================
