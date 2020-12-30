@@ -144,6 +144,7 @@ void *io_thread_function(void *vargp) {
     if (debug) {
       printf("pwrite to file:%s\n", file_name);
     }
+    memset(buf, loop_count%10, buf_len);
     int ret = pwrite(fd, buf, buf_len, 0 /* offset*/);
     if (ret == -1) {
       printf("ERROR buf:%s %d:%s\n", buf, errno, strerror(errno));

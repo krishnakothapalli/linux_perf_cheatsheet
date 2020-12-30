@@ -551,7 +551,98 @@ cpu_threads are running ...
 =========================================================================================
 * perf
 
+Ref: http://www.brendangregg.com/perf.html
+Terminology I'm using, from lowest to highest overhead:
+ - statistics/count: increment an integer counter on events
+ - sample: collect details (eg, instruction pointer or stack) from a subset of events (once every ...)
+ - trace: collect details from every event
 
+installation
+-------------
+sudo apt install linux-tools-$(uname -r) linux-tools-generic
+
+perf stat - gives summary performance counters for a program
+----------------------------------------------------------------
+This is: statistics/count: increment an integer counter on events
+
+$ sudo perf stat /tmp/simple
+ Performance counter stats for '/tmp/simple':
+
+      17172.904652      task-clock (msec)         #    0.159 CPUs utilized <-- only 0.159 cpu is used/
+            27,352      context-switches          #    0.002 M/sec <-- so many context switches                  
+                43      cpu-migrations            #    0.003 K/sec <-- Migration is when a thread, usually after a context switch,
+                                                                       get scheduled on a different CPU than it was scheduled before                 
+               272      page-faults               #    0.016 K/sec                  
+   <not supported>      cycles                                                      
+   <not supported>      instructions                                                
+   <not supported>      branches                                                    
+   <not supported>      branch-misses                                               
+
+     107.985321552 seconds time elapsed
+
+perf-record : record program's profile (at some sampling frequency)
+------------------------------------------------------------------
+
+This is sampling: collect details (eg, instruction pointer or stack) from a subset of events (once every ...)
+
+$ sudo perf record /tmp/simple
+$ perf report --stdio
+ or outside emacs
+$  perf report  <-- nice
+
+# Total Lost Samples: 0
+#
+# Samples: 71K of event 'cpu-clock'
+# Event count (approx.): 17898500000
+#
+# Overhead  Command  Shared Object       Symbol                                 
+# ........  .......  ..................  .......................................
+#
+    95.07%  simple   simple              [.] isPrime <--  for this program 95% of the CPU is spent in isPrime() method
+     1.55%  simple   simple              [.] std::sqrt<int>
+     1.44%  simple   libm-2.27.so        [.] __sqrt
+     1.23%  simple   simple              [.] f1 <-- 1.23% CPU is spent on f1()
+     0.13%  simple   [kernel.kallsyms]   [k] finish_task_switch
+     0.10%  simple   simple              [.] sqrt@plt
+     0.09%  simple   [kernel.kallsyms]   [k] exit_to_usermode_loop
+
+To drill-down to the specific method GOOD
+ - click on the iPrime -> Annotate isPrime -> This will show the source code and assembly(below)
+
+Shows % of CPU time spent by each line in method isPrime(). Total is 100%. GOOD 
+  |
+  v
+isPrime  /tmp/simple
+             for (int i = 2; i <= limit; ++i) {
+  0.16       movl   $0x2,-0x8(%rbp)
+  8.17 23:   mov    -0x8(%rbp),%eax
+  0.77       cmp    -0x4(%rbp),%eax
+            jg     45
+               if (x % i == 0) { <-- this is taking 66.41+8.01+3.11% of CPU in this method. why? branch pipeline stall.
+  3.11       mov    -0x14(%rbp),%eax
+  0.18       cltd
+  8.01       idivl  -0x8(%rbp)
+ 66.41       mov    %edx,%eax
+  0.31       test   %eax,%eax
+            jne    3f
+                 return false;
+  0.31       mov    $0x0,%eax
+  0.20      jmp    4a
+             for (int i = 2; i <= limit; ++i) {
+  8.01 3f:   addl   $0x1,-0x8(%rbp)
+  2.39      jmp    23
+               }
+             }
+             return true;
+  0.02 45:   mov    $0x1,%eax
+           }
+  0.14 4a:   leaveq
+  0.42      retq
+
+Similar output can be obtained by this (can be done in emacs):-
+  sudo perf annotate --stdio isPrime | cat
+
+------------------
 
 man perf-probe
 
@@ -584,7 +675,6 @@ openxs@ao756:~$ sudo perf script >/tmp/queries.txt
 openxs@ao756:~$ sudo perf probe --del dispatch_command
 
 
-
 =========================================================================================
 
 * bpftrace
@@ -614,6 +704,10 @@ https://www.joyfulbikeshedding.com/blog/2019-01-31-full-system-dynamic-tracing-o
 bpftrace -e 'uprobe:/tmp/simple:_Z19cpu_thread_functionPv { printf("%d\n", str(arg1)); }'
 
 bpftrace -e 'uprobe:/tmp/simple:_Z19cpu_thread_functionPv { printf("FOO\n"); }'
+
+See?? https://github.com/iovisor/bpftrace/blob/master/docs/reference_guide.md#3-uprobeuretprobe-dynamic-tracing-user-level
+uprobe/uretprobe: Dynamic Tracing, User-Level
+
 
 ===========================
 * stap *systemtap
@@ -996,4 +1090,130 @@ sudo stap -e 'probe process("/tmp/foo.so").function("f1"),process("/tmp/foo.so")
 
 
 ==========================================================
+* strace
 
+
+-c Count time, calls, and  errors for each system call and report a summary on program exit.
+   This attempts to show system time (CPU time spent running in the kernel) independent of  wall clock time.
+
+-e trace=set eg., -e trace=open,close,read,write
+
+summary of system calls and times
+---------------------------------------
+$  strace -c -f /tmp/simple
+strace: Process 32966 attached
+strace: Process 32967 attached
+strace: Process 32968 attached
+strace: Process 32969 attached
+strace: Process 32970 attached
+strace: Process 32971 attached
+io_threads are running ...
+cpu_threads are running ...
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ----------------
+ 72.99    0.908515        2232       407           nanosleep
+ 22.04    0.274316        3345        82           futex
+  4.68    0.058269         194       300           pwrite64 <-- 4% of the system time(CPU time in kernel) is pwrite64
+                                                                300 call. total CPU time in kernel 0.058269 sec.
+                                                                Each call avg 194 micro seconds.
+  0.07    0.000868          41        21           mprotect
+  0.06    0.000686         114         6           munmap
+  0.05    0.000617         103         6           clone
+  0.04    0.000489          19        26           mmap
+  0.02    0.000298         149         2           write
+  0.02    0.000285          17        17         8 openat
+  0.02    0.000270          39         7           set_robust_list
+  0.01    0.000122          41         3           madvise
+  0.00    0.000055           8         7           fstat
+  0.00    0.000000           0         5           read
+  0.00    0.000000           0         6           close
+  0.00    0.000000           0         8         7 stat
+  0.00    0.000000           0         3           brk
+  0.00    0.000000           0         3           rt_sigaction
+  0.00    0.000000           0         1           rt_sigprocmask
+  0.00    0.000000           0         7         7 access
+  0.00    0.000000           0         1           execve
+  0.00    0.000000           0         1           arch_prctl
+  0.00    0.000000           0         1           set_tid_address
+  0.00    0.000000           0         1           prlimit64
+------ ----------- ----------- --------- --------- ----------------
+100.00    1.244790                   921        22 total
+
+
+-p pid
+-xx         Print all strings in hexadecimal string format.
+-f   trace child/threads
+-s strsize  Specify the maximum string size to print (the default is 32).
+strace -f -p $(pidof mysqld) -e pwrite -s1 -xx 2>&1 | grep 'pwrite([FD1FD2],' |head -n 100000 | awk '{writes[$5]++}END {for(w in writes){print w, " ", writes[w]}}'
+[5:56 PM] Anand Subramanian
+    this should give the InnoDB log file writes being done
+[5:56 PM] Anand Subramanian
+    number/count of and what sized IOs
+
+strace -f -e pwrite64 /tmp/simple -s1 -xx 2>&1 | grep pwrite64 | grep -v resumed | awk '{ print $5, " ", $0;}'
+
+
+=============================
+* time
+
+time /tmp/simple
+io_threads are running ...
+cpu_threads are running ...
+
+real    1m47.819s <- Elapsed real (wall clock) time used by the process, in seconds.
+user    0m17.813s <-- Total number of CPU-seconds that the process used directly (in user mode), in seconds.
+sys     0m0.077s  <-- Total number of CPU-seconds used by the system on behalf of the process (in kernel mode), in seconds.
+==========================
+* migration
+
+Ref: https://stackoverflow.com/questions/45368742/linux-difference-between-migrations-and-switches
+
+A thread can migrate to another CPU in the following cases:
+ - During exec()
+ - During fork()
+ - During thread wake-up.
+ - If thread affinity mask has changed.
+ - When the current CPU is getting offline.
+
+Process migration in computing comes in two flavors:[1]
+- Non-preemptive process migration: Process migration that takes place before execution of
+  the process starts (i.e. migration whereby a process need not be preempted).
+  This type of process migration is relatively cheap, since relatively little administrative
+  overhead is involved.
+- Preemptive process migration: Process migration whereby a process is preempted, migrated
+  and continues processing in a different execution environment.
+  This type of process migration is relatively expensive, since it involves recording,
+  migration and recreation of the process state as well as the reconstructing of any
+  inter-process communication channels to which the migrating process is connected.
+
+
+$ cat /proc/33514/sched
+simple (33514, #threads: 7)
+-------------------------------------------------------------------
+se.exec_start                                :     231412663.439654
+se.vruntime                                  :      13531310.384397
+se.sum_exec_runtime                          :             3.964652
+se.nr_migrations                             :                    0 <-- number of context switches.
+nr_switches                                  :                    3
+nr_voluntary_switches                        :                    3 <--  number of voluntary switches, i.e. the thread blocked and hence another thread is picked up.
+nr_involuntary_switches                      :                    0 <-- the scheduler kicked the thread out as there is another hungry thread is ready to run.
+se.load.weight                               :              1048576
+se.runnable_weight                           :              1048576
+se.avg.load_sum                              :                47280
+se.avg.runnable_load_sum                     :                47280
+se.avg.util_sum                              :             26015811
+se.avg.load_avg                              :                 1023
+se.avg.runnable_load_avg                     :                 1023
+se.avg.util_avg                              :                  547
+se.avg.last_update_time                      :      231412663439360
+policy                                       :                    0
+prio                                         :                  120
+clock-delta                                  :                  191
+mm->numa_scan_seq                            :                    1
+numa_pages_migrated                          :                  184
+numa_preferred_nid                           :                   -1
+total_numa_faults                            :                14371
+current_node=0, numa_group_id=0
+numa_faults node=0 task_private=0 task_shared=0 group_private=0 group_shared=0
+numa_faults node=1 task_private=0 task_shared=0 group_private=0 group_shared=0
+========================================================================================
