@@ -954,7 +954,36 @@ openxs@ao756:~$ sudo perf probe --del dispatch_command
 
 
 =========================================================================================
+* bcc
 
+Ref: https://github.com/iovisor/bcc/blob/master/INSTALL.md
+Could not install properly for Ubuntu 18.04
+But it has good example for tacing latencies.
+Not able to trace C++ code.
+
+These tools fail to run:
+ - tools/ucalls: Summarize method calls or Linux syscalls in high-level languages. Examples.
+ - tools/uflow: Print a method flow graph in high-level languages. Examples.
+ - tools/ugc: Trace garbage collection events in high-level languages. Examples.
+ - tools/uobjnew: Summarize object allocation events by object type and number of bytes allocated. Examples.
+ - tools/ustat: Collect events such as GCs, thread creations, object allocations, exceptions and more in high-level languages. Examples.
+ -tools/uthreads: Trace thread creation events in Java and raw pthreads. Examples.
+
+Below did not show C++ code at all.
+~/bcc/tools$ sudo ./funclatency.py /tmp/simple:* --milliseconds  -p $(pidof simple) --function --duration 20
+Tracing 21 functions for "/tmp/simple:*"... Hit Ctrl-C to end.
+
+
+Function = b'__gnu_cxx::__enable_if<std::__is_integer<int>::__value, double>::__type std::sqrt<int>(int)' [50381]
+     msecs               : count     distribution
+         0 -> 1          : 2677210  |****************************************|
+         2 -> 3          : 3        |                                        |
+         4 -> 7          : 2        |                                        |
+
+avg = 0 msecs, total: 16098 msecs, count: 2678884
+
+Detaching...
+==============================
 * bpftrace
 
  bpftrace  is  a high-level tracing language for Linux enhanced Berkeley Packet Filter (eBPF) available in recent Linux kernels (4.x).
@@ -984,12 +1013,27 @@ cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j8
 sudo make install
 
+!!Note: If things don't work reinstall!!
+
+
 krishna@krishna  /linux_perf_cheatsheet$ sudo bpftrace -e 'uprobe:/tmp/simple:f4 { printf("f4: %d\n", arg1); }'
 Attaching 1 probe...
 f4: 0
 f4: 0
 f4: 0
 f4: 0
+
+$ sudo bpftrace -e 'uprobe:/tmp/simple:isP* { printf("isPrime: %d\n", arg1); }'
+
+Not much functionality for user space:
+See https://github.com/iovisor/bpftrace/blob/master/docs/reference_guide.md#3-uprobeuretprobe-dynamic-tracing-user-level
+  section "uprobe/uretprobe: Dynamic Tracing, User-Level"
+     uprobe:library_name:function_name[+offset]
+     uprobe:library_name:address
+     uretprobe:library_name:function_name
+  Section "4. uprobe/uretprobe: Dynamic Tracing, User-Level Arguments"
+     probe: arg0, arg1, ..., argN
+     uretprobe: retval
 
 
 list probes?
@@ -1015,10 +1059,7 @@ http://www.brendangregg.com/BPF/bpftrace-cheat-sheet.html
 https://github.com/iovisor/bpftrace/blob/master/docs/tutorial_one_liners.md
 https://www.percona.com/sites/default/files/presentations/Scale18x-2020-bpfTrace-finally-dTrace-replacement.pdf
 https://www.joyfulbikeshedding.com/blog/2019-01-31-full-system-dynamic-tracing-on-linux-using-ebpf-and-bpftrace.html#usdt-probe-example
-
-
-
-===========================
+=======================================================
 * stap *systemtap
 
 SystemTap is a tracing and probing tool that allows users to study and monitor the activities of the computer system (particularly, the kernel) in fine detail. It provides information similar to the output of tools like netstat, ps, top, and iostat, but is designed to provide more filtering and analysis options for collected information.
