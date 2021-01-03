@@ -881,7 +881,7 @@ Added new event:
 
 You can now use it in all perf tools, such as:
 
-	perf record -e probe_simple:f1_2 -aR sleep 1
+        perf record -e probe_simple:f1_2 -aR sleep 1
 
 
 
@@ -1567,3 +1567,232 @@ current_node=0, numa_group_id=0
 numa_faults node=0 task_private=0 task_shared=0 group_private=0 group_shared=0
 numa_faults node=1 task_private=0 task_shared=0 group_private=0 group_shared=0
 ========================================================================================
+* optimizations * compiler optimizations * cpu optimization
+* pgo profile guide optimization
+
+Ref:
+  What Every Programmer Should Know About Memory https://akkadia.org/drepper/cpumemory.pdf
+  https://ddmler.github.io/compiler/2018/06/29/profile-guided-optimization.html
+The first step  is to create an instrumented version of our binary that will gather the runtime data
+
+$ g++ -fprofile-generate simple.cc -o /tmp/simple -lpthread -rdynamic;
+
+Normally you would run it multiple times with different input and so on to create a somewhat representative sample of your actual usage patterns. This will create a new .gcda file in this case it’s called simple.gcda. We will use this in our next step as the profile:
+
+$g++ -fprofile-use=simple.gcda -O3 simple.cc -o /tmp/simple -lpthread -rdynamic;
+
+
+gcc: how did gcc optimize my code
+-------------------------------
+Ref: https://gcc.gnu.org/onlinedocs/gcc-6.3.0/gcc/Developer-Options.html
+  - fdump-tree-switch-options=filename Control the dumping at various stages of processing the intermediate language tree to a file.
+   ‘optimized’ Enable showing optimization information (only available in certain passes)
+
+Ref: https://stackoverflow.com/questions/2391442/how-to-see-the-optimized-code-in-c
+
+You can get an idea of optimization using the option -fdump-tree-optimized with gcc . and you'll get an optimised file. you cannot run the code but using that you can get an idea of optimization . dont forget to include -O2 or -O3 or some other level.
+
+Eg.,
+$ g++  -O3 -fdump-tree-optimized=optimized.txt  simple.cc -o /tmp/simple -lpthread -rdynamic;
+optimized.txt file will contains the file that shows how g++ optimized the code with "-O3" option
+$ time /tmp/simple
+real    0m9.659s <-- 10 sec
+
+$g++ -fdump-tree-optimized=unoptimized.txt  simple.cc -o /tmp/simple -lpthread -rdynamic;
+unoptimized.txt file will contain the file that shows the unoptimized code
+$ time /tmp/simple
+Unoptimized takes very long time ...  may be 10 mins?
+
+Original cpu_thread_function:-
+
+void *cpu_thread_function(void *vargp) {
+  uint32_t my_num = (*(uint32_t *)vargp);
+
+  for (int loop_count = 0; loop_count < LOOP_COUNT; loop_count++) {
+    f4(loop_count);
+  }
+}
+
+From optimized.txt cpu_thread_function:-
+  - Notice these things:
+    -- conntents of f4() are put inside cpu_thread_function (inlined)
+    -- f4() calls f3(). Here f3() as removed (as it is a redundant function: its return value not used, no printf in it, no global variables set)
+void* cpu_thread_function(void*) (void * vargp)
+{
+  int i;
+  double _10;
+  unsigned int ivtmp_12;
+  unsigned int ivtmp_31;
+
+  <bb 2> [0.01%]:
+
+  <bb 3> [0.15%]:
+  # ivtmp_12 = PHI <ivtmp_31(8), 10(2)>
+  goto <bb 7>; [100.00%]
+
+  <bb 4> [14.29%]:
+  _10 = (double) i_9;
+  if (_10 u>= 0.0)
+    goto <bb 6>; [98.99%]
+  else
+    goto <bb 5>; [1.01%]
+
+  <bb 5> [0.14%]:
+  __builtin_sqrt (_10);
+
+  <bb 6> [14.29%]:
+
+  <bb 7> [14.44%]:
+  # i_6 = PHI <i_9(6), 0(3)>
+  i_9 = i_6 + 1;
+  if (i_9 == 1000000000)
+    goto <bb 8>; [1.01%]
+  else
+    goto <bb 4>; [98.99%]
+
+  <bb 8> [0.15%]:
+  __builtin_putchar (46);
+  __builtin_putchar (46);
+  pthread_mutex_lock (&mutex1);
+  pthread_mutex_unlock (&mutex1);
+  pthread_mutex_lock (&mutex2);
+  pthread_mutex_unlock (&mutex2);
+  pthread_mutex_lock (&mutex3);
+  pthread_mutex_unlock (&mutex3);
+  __builtin_putchar (46);
+  ivtmp_31 = ivtmp_12 + 4294967295;
+  if (ivtmp_31 == 0)
+    goto <bb 9>; [9.70%]
+  else
+    goto <bb 3>; [90.30%]
+
+  <bb 9> [0.01%]:
+  return;
+
+}
+
+
+From unoptimized.txt cpu_thread_function:-
+  - Notice this:
+    - no code optimization
+    - while loop is replaced with "loop_count_1", "if" and "goto"
+    
+;; Function void* cpu_thread_function(void*) (_Z19cpu_thread_functionPv, funcdef_no=1729, decl_uid=42507, cgraph_uid=601, symbol_order=608)
+
+void* cpu_thread_function(void*) (void * vargp)
+{
+  int loop_count;
+  uint32_t my_num;
+
+  <bb 2> [0.00%]:
+  my_num_5 = MEM[(uint32_t *)vargp_4(D)];
+  loop_count_6 = 0;
+
+  <bb 3> [0.00%]:
+  # loop_count_1 = PHI <loop_count_6(2), loop_count_8(4)>
+  if (loop_count_1 > 9)
+    goto <bb 5>; [0.00%]
+  else
+    goto <bb 4>; [0.00%]
+
+  <bb 4> [0.00%]:
+  f4 (loop_count_1);
+  loop_count_8 = loop_count_1 + 1;
+  goto <bb 3>; [0.00%]
+
+  <bb 5> [0.00%]:
+  return;
+
+}
+
+
+gcc: which optimizations are applied/missed
+---------------------------------------------
+Print information when an optimization is successfully applied.
+$ g++ -O3 -fopt-info-optimized=optimized.all  simple.cc -o /tmp/simple -lpthread -rdynamic;
+
+File optimized.all:-
+....
+simple.cc:189:26: note: loop turned into non-loop; it never loops.
+simple.cc:189:26: note: loop with 3 iterations completely unrolled
+...
+File simple.cc:-
+189  for (uint32_t i = 0; i < IO_THREAD_COUNT; i++) {
+190    int *return_value;
+191    pthread_join(cpu_threads[i], (void **)&return_value);
+192  }
+
+you can see the loop was unrolled (use $g++  -O3 -fdump-tree-optimized=optimized.txt  simple.cc -o /tmp/simple -lpthread -rdynamic;): 
+  io_threads_nums[0] = 0;
+  pthread_create (&cpu_threads, 0B, cpu_thread_function, &io_threads_nums);
+  io_threads_nums[1] = 1;
+  pthread_create (&MEM[(void *)&cpu_threads + 8B], 0B, cpu_thread_function, &MEM[(void *)&io_threads_nums + 4B]);
+  io_threads_nums[2] = 2;
+  pthread_create (&MEM[(void *)&cpu_threads + 16B], 0B, cpu_thread_function, &MEM[(void *)&io_threads_nums + 8B]);
+  __builtin_puts (&"io_threads are running ..."[0]);
+  __builtin_puts (&"cpu_threads are running ..."[0]);
+  _32 = cpu_threads[0];
+  pthread_join (_32, &return_value);
+  return_value ={v} {CLOBBER};
+  _38 = cpu_threads[1];
+  pthread_join (_38, &return_value);
+  return_value ={v} {CLOBBER};
+  _3 = cpu_threads[2];
+  pthread_join (_3, &return_value);
+  return_value ={v} {CLOBBER};
+  io_threads_nums ={v} {CLOBBER};
+  cpu_threads ={v} {CLOBBER};
+
+
+Which optimizations are missed ?
+$ g++ -O3 -fopt-info-missed=missed.all  simple.cc -o /tmp/simple -lpthread -rdynamic;
+
+missed.all file:
+...
+simple.cc:191:17: note: not vectorized: not enough data-refs in basic block.
+simple.cc:191:17: note: not vectorized: not enough data-refs in basic block.
+simple.cc:191:17: note: not vectorized: not enough data-refs in basic block.
+..
+
+gcc: which optimizations are enabled/disbaled at -O3
+-------------------------------------------------------
+Ref: https://stackoverflow.com/questions/14737371/how-to-find-out-which-optimizations-are-actually-applied-when-using-gcc
+
+use -Q --help=optimizers 
+$ g++  -O3 -Q --help=optimizers  simple.cc -o /tmp/simple -lpthread -rdynamic;
+The following options control optimizations:
+  -O<number>                            
+  -Ofast                                
+  -Og                                   
+  -Os                                   
+  -faggressive-loop-optimizations       [enabled]
+  -falign-functions                     [disabled]
+  -falign-jumps                         [disabled]
+  -falign-labels                        [enabled]
+  -falign-loops                         [disabled]
+  -fassociative-math                    [disabled]
+  -fasynchronous-unwind-tables          [enabled]
+  -fauto-inc-dec                        [enabled]
+  -fbranch-count-reg                    [enabled]
+  -fcaller-saves                        [enabled]
+  -fcode-hoisting                       [enabled]
+  -fcombine-stack-adjustments           [enabled]
+  -fcompare-elim                        [enabled]
+  -fcprop-registers                     [enabled]
+  -fcrossjumping                        [enabled]
+  -fcse-follow-jumps                    [enabled]
+  ..
+  -finline                              [enabled]
+  -finline-atomics                      [enabled]
+  -finline-functions                    [enabled]
+  -finline-functions-called-once        [enabled]
+  -finline-small-functions              [enabled]
+  -fipa-bit-cp                          [enabled]
+  -fipa-cp                              [enabled]
+  -fipa-cp-clone                        [enabled]
+  -fipa-icf                             [enabled]
+  -fipa-icf-functions                   [enabled]
+  -fipa-icf-variables                   [enabled]
+  -fipa-profile                         [enabled]
+  ..xs
+=======================================================================

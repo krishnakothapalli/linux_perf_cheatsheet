@@ -24,10 +24,12 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define IO_THREAD_COUNT 3
+#define THREAD_COUNT 3
 #define APP_BLOCK_SIZE 4096
+#define LOOP_COUNT 10
 
-#define LOOP_COUNT 100
+int run_io_threads = 0;
+int run_cpu_threads = 1;
 
 class C1 {
 public:
@@ -51,10 +53,14 @@ void sigint_handler(int signal) {
 #include <cmath>
 #include <iostream>
 
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
 bool isPrime(int x) {
   int limit = std::sqrt(x);
   for (int i = 2; i <= limit; ++i) {
-    if (x % i == 0) {
+    // if (unlikely(x % i == 0)) {
+    if ((x % i == 0)) {
       return false;
     }
   }
@@ -71,8 +77,9 @@ void f1(int c) {
   }
   // printf(".");
   int primeCount = 0;
-  for (int i = 0; i < 1000000; ++i) {
-    if (isPrime(i)) {
+  for (int i = 0; i < 1000000000; ++i) {
+    // if (unlikely(isPrime(i))) {
+    if ((isPrime(i))) {
       ++primeCount;
     }
   }
@@ -80,11 +87,11 @@ void f1(int c) {
 
 void f2(int b) {
   f1(b + 1);
-  // printf(".");
+  printf(".");
 }
 void f3(int a) {
   f2(a + 1);
-  // printf(".");
+  printf(".");
 }
 
 void f4(int d) {
@@ -100,6 +107,7 @@ void f4(int d) {
   pthread_mutex_lock(&mutex3);
   sleep(3);
   pthread_mutex_unlock(&mutex3);
+  printf(".");
 }
 void *cpu_thread_function(void *vargp) {
   uint32_t my_num = (*(uint32_t *)vargp);
@@ -144,7 +152,7 @@ void *io_thread_function(void *vargp) {
     if (debug) {
       printf("pwrite to file:%s\n", file_name);
     }
-    memset(buf, loop_count%10, buf_len);
+    memset(buf, loop_count % 10, buf_len);
     int ret = pwrite(fd, buf, buf_len, 0 /* offset*/);
     if (ret == -1) {
       printf("ERROR buf:%s %d:%s\n", buf, errno, strerror(errno));
@@ -158,26 +166,40 @@ void *io_thread_function(void *vargp) {
 int main(int argc, char **argv) {
   int i;
   pthread_t tid;
-  uint32_t io_threads_nums[IO_THREAD_COUNT];
-  pthread_t io_threads[IO_THREAD_COUNT];
-  pthread_t cpu_threads[IO_THREAD_COUNT];
+  uint32_t io_threads_nums[THREAD_COUNT];
+  pthread_t io_threads[THREAD_COUNT];
+  pthread_t cpu_threads[THREAD_COUNT];
 
   signal(SIGINT, sigint_handler);
 
-  for (uint32_t i = 0; i < IO_THREAD_COUNT; i++) {
+  for (uint32_t i = 0; i < THREAD_COUNT; i++) {
     io_threads_nums[i] = i;
-    pthread_create(&io_threads[i], NULL, io_thread_function,
-                   &io_threads_nums[i]);
-    pthread_create(&cpu_threads[i], NULL, cpu_thread_function,
-                   &io_threads_nums[i]);
+    if (run_io_threads) {
+      pthread_create(&io_threads[i], NULL, io_thread_function,
+                     &io_threads_nums[i]);
+    }
+
+    if (run_cpu_threads) {
+      pthread_create(&cpu_threads[i], NULL, cpu_thread_function,
+                     &io_threads_nums[i]);
+    }
   }
 
-  printf("io_threads are running ...\n");
-  printf("cpu_threads are running ...\n");
+  if (run_io_threads) {
+    printf("io_threads are running ...\n");
+  }
+  if (run_cpu_threads) {
+    printf("cpu_threads are running ...\n");
+  }
 
-  for (uint32_t i = 0; i < IO_THREAD_COUNT; i++) {
+  for (uint32_t i = 0; run_io_threads && i < THREAD_COUNT; i++) {
     int *return_value;
     pthread_join(io_threads[i], (void **)&return_value);
+  }
+
+  for (uint32_t i = 0; run_cpu_threads && i < THREAD_COUNT; i++) {
+    int *return_value;
+    pthread_join(cpu_threads[i], (void **)&return_value);
   }
 
   return 0;
