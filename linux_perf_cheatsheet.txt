@@ -988,13 +988,13 @@ Detaching...
 
  bpftrace  is  a high-level tracing language for Linux enhanced Berkeley Packet Filter (eBPF) available in recent Linux kernels (4.x).
 
-       ┌─────────┬─────────────┬──────────────┐
-       │         │   kernel    │   userland   │
-       ├─────────┼─────────────┼──────────────┤
-       │ static  │ tracepoints │ USDT* probes │
-       ├─────────┼─────────────┼──────────────┤
-       │ dynamic │   kprobes   │   uprobes    │
-       └─────────┴─────────────┴──────────────┘
+       
+                   kernel       userland   
+       
+        static   tracepoints  USDT* probes 
+       
+        dynamic    kprobes      uprobes    
+       
        USDT = user-level statically defined tracing
        static - are predefined probes in the code already
        dynamic - you can add probes at runtime (with out modifying the code).
@@ -1567,7 +1567,169 @@ current_node=0, numa_group_id=0
 numa_faults node=0 task_private=0 task_shared=0 group_private=0 group_shared=0
 numa_faults node=1 task_private=0 task_shared=0 group_private=0 group_shared=0
 ========================================================================================
-* optimizations * compiler optimizations * cpu optimization
+* optimizations * cpu optimization
+
+
+** Branch prediction macros in GCC
+Ref: https://www.geeksforgeeks.org/branch-prediction-macros-in-gcc/
+
+#define likely(x)      __builtin_expect(!!(x), 1)
+#define unlikely(x)    __builtin_expect(!!(x), 0)
+
+const char *home_dir ;
+
+home_dir = getenv("HOME");
+if (likely(home_dir))
+   printf("home directory: %s\n", home_dir);
+else
+   perror("getenv");
+
+For above example, we have marked if condition as likely() true, so compiler will put true code immediately after branch, and false code within the branch instruction. In this way compiler can achieve optimization.
+Accessing memory is the slowest CPU operation as compared to other CPU operations. To avoid this limitation, CPU uses CPU caches e.g L1-cache, L2-cache etc. The idea behind cache is, copy some part of memory into CPU itself. We can access cache memory much faster than any other memory. But the problem is, limited size of cache memory, we cant copy entire memory into cache. So, the CPU has to guess which memory is going to be used in the near future and load that memory into the CPU cache and above macros are hint to load memory into the CPU cache.
+
+
+** Loop Optimization in Compiler Design
+Ref: https://www.geeksforgeeks.org/loop-optimization-in-compiler-design/?ref=rp
+
+*** Frequency Reduction (Code Motion):
+In frequency reduction, the amount of code in loop is decreased. A statement or expression, which can be moved outside the loop body without affecting the semantics of the program, is moved outside the loop.
+
+Initial code:
+
+while(i<100)
+{
+   a = Sin(x)/Cos(x) + i;
+   i++;
+}
+
+Optimized code:
+
+t = Sin(x)/Cos(x);
+while(i<100)
+{
+ a = t + i;
+ i++;
+}
+
+*** Loop Unrolling: Loop unrolling is a loop transformation technique that helps to optimize the execution time of a program. We basically remove or reduce iterations. Loop unrolling increases the programs speed by eliminating loop control instruction and loop test instructions.
+Example:
+
+Initial code:-
+
+for (int i=0; i<5; i++)
+  printf("Pankaj\n");
+
+Optimized code:-
+
+printf("Pankaj\n");
+printf("Pankaj\n");
+printf("Pankaj\n");
+printf("Pankaj\n");
+printf("Pankaj\n");
+
+*** Loop Jamming: Loop jamming is the combining the two or more loops in a single loop. It reduces the time taken to compile the many number of loops.
+Example:
+
+Initial Code:
+
+for(int i=0; i<5; i++)
+    a = i + 5;
+for(int i=0; i<5; i++)
+    b = i + 10;
+
+Optimized code:
+for(int i=0; i<5; i++)
+{
+  a = i + 5;
+  b = i + 10;
+}
+
+*** Peephole Optimization in Compiler Design
+Ref: https://www.geeksforgeeks.org/peephole-optimization-in-compiler-design/
+
+Peephole optimization is a type of Code Optimization performed on a small part of the code. It is performed on the very small set of instructions in a segment of code.
+
+Redundant load and store elimination: In this technique the redundancy is eliminated.
+
+Initial code:
+  y = x + 5;
+  i = y;
+  z = i;
+  w = z * 3;
+
+Optimized code: ( here variable "z" is redundant/removed)
+  y = x + 5;
+  i = y;
+  w = y * 3;
+Constant folding: The code that can be simplified by user itself, is simplified.
+
+Initial code:
+  x = 2 * 3;
+
+Optimized code:
+  x = 6;
+  
+Strength Reduction:The operators that consume higher execution time are replaced by the operators consuming less execution time.
+
+Initial code:
+  y = x * 2;
+Optimized code:
+  y = x + x;    or     y = x << 1;
+
+Initial code:
+  y = x / 2;
+Optimized code:
+  y = x >> 1;
+  
+Null sequences: Useless operations are deleted.
+
+Combine operations: Several operations are replaced by a single equivalent operation.
+
+** Basic optimizations
+
+Ref: https://www.geeksforgeeks.org/basic-code-optimizations-in-c/
+
+Avoid pointer Dereference in loop: Pointer dereferencing creates lots of trouble in memory. So better assign it to some temporary variable and then use that temporary variable in the loop.
+
+Unoptimized:-
+#include <stdio.h>
+int main(void) {
+  int a = 0;
+  int *iptr = &a;
+
+  // Dereferencing pointer inside loop
+  // is costly
+  for (int i = 1; i < 11; ++i) {
+    *iptr = *iptr + i;
+  }
+  printf("Value of a : %d", a);
+  return 0;
+}
+
+Optimized:-
+#include <stdio.h>
+int main(void) {
+  int a = 0;
+  int *iptr = &a;
+
+  // Dereferencing pointer outside loop
+  // and saving its value in a temp variable
+  int temp = *iptr;
+
+  for (int i = 1; i < 11; ++i) {
+
+    // performing calculations on temp variable
+    temp = temp + i;
+  }
+
+  // Updating pointer using final value of temp
+  *iptr = temp;
+
+  printf("Value of a : %d", a);
+  return 0;
+}
+
+============================================================
 * pgo profile guide optimization
 
 Ref:
@@ -1577,16 +1739,17 @@ The first step  is to create an instrumented version of our binary that will gat
 
 $ g++ -fprofile-generate simple.cc -o /tmp/simple -lpthread -rdynamic;
 
-Normally you would run it multiple times with different input and so on to create a somewhat representative sample of your actual usage patterns. This will create a new .gcda file in this case it’s called simple.gcda. We will use this in our next step as the profile:
+Normally you would run it multiple times with different input and so on to create a somewhat representative sample of your actual usage patterns. This will create a new .gcda file in this case its called simple.gcda. We will use this in our next step as the profile:
 
 $g++ -fprofile-use=simple.gcda -O3 simple.cc -o /tmp/simple -lpthread -rdynamic;
 
-
+==============================================================
+* compiler optimizations 
 gcc: how did gcc optimize my code
 -------------------------------
 Ref: https://gcc.gnu.org/onlinedocs/gcc-6.3.0/gcc/Developer-Options.html
   - fdump-tree-switch-options=filename Control the dumping at various stages of processing the intermediate language tree to a file.
-   ‘optimized’ Enable showing optimization information (only available in certain passes)
+   optimized Enable showing optimization information (only available in certain passes)
 
 Ref: https://stackoverflow.com/questions/2391442/how-to-see-the-optimized-code-in-c
 
