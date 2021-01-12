@@ -508,8 +508,10 @@ Note:
  - link with -rdynamic for better traces
    gcc -O -g3  simple.cc -o /tmp/simple -lpthread -rdynamic;
  - program has to exit to capture traces
-
-~/linux_perf_cheatsheet$ mutrace /tmp/simple
+ - use higher --hash-size=100000 (if you see messages like mutrace: WARNING: 1739093 internal hash collisions detected. Results might not be as reliable as they could be.mutrace:          Try to increase --hash-size=, which is currently at 3371.)
+  - program should not crash
+  
+~/linux_perf_cheatsheet$ mutrace  --hash-size=100000 /tmp/simple
 mutrace: 0.2 sucessfully initialized for process simple (pid 53366).
 io_threads are running ...
 cpu_threads are running ...
@@ -558,6 +560,93 @@ mutrace: Total runtime is 13614.505 ms.
 mutrace: Results for SMP with 16 processors.
 
 
+how to decode:- <-- this gives the function name and not the line number
+ $ c++filt _Z19cpu_thread_functionPv+0x2c
+  _Z19cpu_thread_functionPv+0x2c
+
+ $ c++filt _Z19cpu_thread_functionPv
+  cpu_thread_function(void*) 
+
+
+Use gdb to decode the code function and line etc.,
+
+Eg.,
+Mutex #1 (0x0x561260fb00a0) first referenced by:
+        /usr/lib/mutrace/libmutrace.so(pthread_mutex_lock+0x47) [0x7f8980d8d827]
+        /tmp/simple(_Z2f4i+0x43) [0x561260dae384] <-- we will decode this
+        /tmp/simple(_Z19cpu_thread_functionPv+0x2c) [0x561260dae3f5]
+        /lib/x86_64-linux-gnu/libpthread.so.0(+0x76db) [0x7f8980b726db]
+
+
+Need to decode _Z2f4i+0x43
+$ c++filt _Z2f4i
+f4(int)
+
+Then use gdb to find the line number:-
+  Ref: https://stackoverflow.com/questions/22769246/how-to-disassemble-one-single-function-using-objdump
+
+
+$ gdb -batch -ex "disassemble/rs f4" /tmp/simple <-- here we wanted to disass function f4() Now below see +0x43
+
+Dump of assembler code for function f4(int):
+simple.cc:
+98      void f4(int d) {
+   0x0000000000001341 <+0>:     55      push   %rbp
+   0x0000000000001342 <+1>:     48 89 e5        mov    %rsp,%rbp
+   0x0000000000001345 <+4>:     48 83 ec 10     sub    $0x10,%rsp
+   0x0000000000001349 <+8>:     89 7d fc        mov    %edi,-0x4(%rbp)
+..
+100       pthread_mutex_lock(&mutex1);
+   0x0000000000001356 <+21>:    48 8d 3d 03 1d 20 00    lea    0x201d03(%rip),%rdi        # 0x203060 <mutex1>
+   0x000000000000135d <+28>:    e8 6e fd ff ff  callq  0x10d0 <pthread_mutex_lock@plt>
+
+101       sleep(1);
+   0x0000000000001362 <+33>:    bf 01 00 00 00  mov    $0x1,%edi
+   0x0000000000001367 <+38>:    e8 e4 fc ff ff  callq  0x1050 <sleep@plt>
+
+102       pthread_mutex_unlock(&mutex1);
+   0x000000000000136c <+43>:    48 8d 3d ed 1c 20 00    lea    0x201ced(%rip),%rdi        # 0x203060 <mutex1> <------------------------this +0x43
+   0x0000000000001373 <+50>:    e8 e8 fc ff ff  callq  0x1060 <pthread_mutex_unlock@plt>
+
+103     
+104       pthread_mutex_lock(&mutex2);
+   0x0000000000001378 <+55>:    48 8d 3d 21 1d 20 00    lea    0x201d21(%rip),%rdi        # 0x2030a0 <mutex2>
+   0x000000000000137f <+62>:    e8 4c fd ff ff  callq  0x10d0 <pthread_mutex_lock@plt>
+
+105       sleep(2);
+   0x0000000000001384 <+67>:    bf 02 00 00 00  mov    $0x2,%edi
+   0x0000000000001389 <+72>:    e8 c2 fc ff ff  callq  0x1050 <sleep@plt>
+
+112     }
+   0x00000000000013c6 <+133>:   90      nop
+   0x00000000000013c7 <+134>:   c9      leaveq 
+   0x00000000000013c8 <+135>:   c3      retq   
+End of assembler dump.
+
+* system tap futex contention
+
+Ref: https://sourceware.org/systemtap/examples/
+ process/futexes.stp - System-Wide Futex Contention
+ process/futexes2.stp - System-Wide Shared Futex Contention
+
+scripts# stap -v futexes.stp 
+Pass 1: parsed user script and 465 library scripts using 114360virt/48976res/6596shr/42680data kb, in 250usr/50sys/298real ms.
+Pass 2: analyzed script: 4 probes, 8 functions, 104 embeds, 9 globals using 116076virt/52352res/8068shr/44396data kb, in 100usr/440sys/551real ms.
+Pass 3: translated to C into "/tmp/stapSU927u/stap_b948ea59e802474b7b021ce9b61d6fa4_67634_src.c" using 116448virt/52732res/8196shr/44768data kb, in 0usr/0sys/3real ms.
+Pass 4: compiled C into "stap_b948ea59e802474b7b021ce9b61d6fa4_67634.ko" in 5090usr/1710sys/6340real ms.
+Pass 5: starting run.
+  C-c C-cmysqld[30986] lock 0x7fc150385928 contended 153 times, 6 avg us
+mysqld[30986] lock 0x7fc150385838 contended 2 times, 113 avg us
+mysqld[30986] lock 0x7fc15038583c contended 2 times, 122 avg us
+mysqld[30986] lock 0x7fc1503857e8 contended 2 times, 81 avg us
+simple[31319] lock 0x5601419760a0 contended 2 times, 1233633 avg us
+simple[31386] lock 0x55b9426a3060 contended 2 times, 1500334 avg us
+Pass 5: run completed in 20usr/440sys/7941real ms.
+
+https://man7.org/linux/man-pages/man2/futex.2.html
+ long futex(uint32_t *uaddr, int futex_op, uint32_t val, const struct timespec *timeout, uint32_t *uaddr2, uint32_t val3);
+
+The address  they capture is uaddr in the above call (eg., simple[31319] lock 0x5601419760a0 contended 2 times, 1233633 avg us)
 * drd valgrind 
 
 Linux valgrind's drd can be used to track down long held mutexes.

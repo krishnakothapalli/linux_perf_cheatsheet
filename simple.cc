@@ -26,7 +26,7 @@
 
 #define THREAD_COUNT 3
 #define APP_BLOCK_SIZE 4096
-#define LOOP_COUNT 10
+#define LOOP_COUNT 5
 
 int run_io_threads = 0;
 int run_cpu_threads = 1;
@@ -77,7 +77,8 @@ void f1(int c) {
   }
   // printf(".");
   int primeCount = 0;
-  for (int i = 0; i < 1000000000; ++i) {
+  //for (int i = 0; i < 1000000000; ++i) {
+  for (int i = 0; i < 100; ++i) {
     // if (unlikely(isPrime(i))) {
     if ((isPrime(i))) {
       ++primeCount;
