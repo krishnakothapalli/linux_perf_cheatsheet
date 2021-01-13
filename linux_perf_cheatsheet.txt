@@ -623,6 +623,46 @@ simple.cc:
    0x00000000000013c8 <+135>:   c3      retq   
 End of assembler dump.
 
+
+
+Eg., diassamble an address in an library
+
+Mutex #46279 (0x0x7fbac5a00f80) first referenced by:
+	/usr/lib/mutrace/libmutrace.so(pthread_mutex_lock+0x47) [0x7fbac5c29827]
+	/home/krishna/mysql/bin/libfoo.so(+0x128c45) [0x7fbac5647c45] <-- need to decode this +0x128c45 in libfoo.so
+	/home/krishna/mysql/bin/libfoo.so(+0x1328f3) [0x7fbac56518f3]
+	/home/krishna/mysql/bin/libfoo.so(+0x137981) [0x7fbac5656981]
+	/home/krishna/mysql/bin/libfoo.so(+0x13870a) [0x7fbac565770a]
+
+$gdb -batch -ex "disas/rs 0x128c45" ./out/storage/vml/libfoo.so
+...
+SEE the full function to get better context ... not putting it  here.
+
+32	    std::lock_guard<decltype(
+33	        io_context->all_completed_io_events_queue_mutex)>
+
+/home/krishna/apis/NativeAioContext.cc:
+40	}
+/usr/include/c++/7/bits/unique_ptr.h:
+78		delete __ptr;
+   0x0000000000128c29 <+393>:	4c 89 ff	mov    %r15,%rdi
+   0x0000000000128c2c <+396>:	be 10 00 00 00	mov    $0x10,%esi
+
+/home/krishnay/apis/NativeAioContext.cc:
+40	}
+
+/usr/include/c++/7/bits/unique_ptr.h:
+78		delete __ptr;
+   0x0000000000128c3b <+411>:	e9 20 93 fd ff	jmpq   0x101f60 <_ZdlPvm@plt>
+
+/usr/include/c++/7/bits/deque.tcc:
+921		= this->_M_impl._M_finish._M_node - this->_M_impl._M_start._M_node + 1;
+   0x0000000000128c40 <+416>:	48 8b 7d c0	mov    -0x40(%rbp),%rdi
+   0x0000000000128c44 <+420>:	48 8b b3 b8 00 00 00	mov    0xb8(%rbx),%rsi    <-- +0x128c45 is here (looks like its deleting this node from dequeue and using lock)
+   0x0000000000128c4b <+427>:	48 89 f8	mov    %rdi,%rax
+   0x0000000000128c4e <+430>:	48 29 f0	sub    %rsi,%rax
+   0x0000000000128c51 <+433>:	48 c1 f8 03	sar    $0x3,%rax
+
 * system tap futex contention
 
 Ref: https://sourceware.org/systemtap/examples/
@@ -883,7 +923,7 @@ main
 ..
 
 http://mysqlentomologist.blogspot.com/2020/07/dynamic-tracing-of-c-class-member.html
-$sudo perf probe --funcs --exec  /home/krishna/orcasql-mysql/out/runtime_output_directory/libvml.so| grep FileChunk
+$sudo perf probe --funcs --exec  /home/krishna/orcasql-mysql/out/runtime_output_directory/libfoo.so| grep FileChunk
 vml::FileChunkHandlerLinux::PerformFlushInternal
 vml::FileChunkHandlerLinux::PerformIoInternal
 vml::FileChunkHandlerLinux::PerformReadInternal
@@ -931,10 +971,10 @@ Available variables at f1
                 int     primeCount
 
 
-krishna@krishna:~/linux_perf_cheatsheet$ krishna@krishna:~/linux_perf_cheatsheet$ sudo perf probe --funcs --no-demangle --exec  /home/krishna/orcasql-mysql/out/runtime_output_directory/libvml.so | grep Internal
+krishna@krishna:~/linux_perf_cheatsheet$ krishna@krishna:~/linux_perf_cheatsheet$ sudo perf probe --funcs --no-demangle --exec  /home/krishna/orcasql-mysql/out/runtime_output_directory/libfoo.so | grep Internal
 krishna@krishna:~/linux_perf_cheatsheet$ 
 krishna@krishna:~/linux_perf_cheatsheet$ 
-krishna@krishna:~/linux_perf_cheatsheet$ sudo perf probe --funcs --no-demangle --filter='*' --exec  /home/krishna/orcasql-mysql/out/runtime_output_directory/libvml.so | grep Internal
+krishna@krishna:~/linux_perf_cheatsheet$ sudo perf probe --funcs --no-demangle --filter='*' --exec  /home/krishna/orcasql-mysql/out/runtime_output_directory/libfoo.so | grep Internal
 _ZN3vml15MemChunkHandler17PerformIoInternalEPKNS_9IoRequestE
 _ZN3vml16NamespaceManager16AllocateInternalEPNS_17FileChangeContextE
 _ZN3vml16NamespaceManager16MoveFileInternalEPNS_15FileMoveContextEb
@@ -1234,12 +1274,12 @@ process("/tmp/simple").function("register_tm_clones")
 process("/tmp/simple").function("sigint_handler@/home/krishna/linux_perf_cheatsheet/simple.cc:45")
 process("/tmp/simple").function("sprintf@/usr/include/x86_64-linux-gnu/bits/stdio2.h:31")
 
-krishna@krishna:~/linux_perf_cheatsheet/scripts$ sudo stap -l 'process("/home/krishna/orcasql-mysql/out/storage/vml/libvml.so").function("*")'
-process("/home/krishna/orcasql-mysql/out/storage/vml/libvml.so").function("AbortTx@/home/krishna/orcasql-mysql/storage/vml/metadata/UndurableStorage.cc:340")
-process("/home/krishna/orcasql-mysql/out/storage/vml/libvml.so").function("Acquire@/home/krishna/orcasql-mysql/storage/vml/io_fence/FileLockBasedIoFence.cc:28")
-process("/home/krishna/orcasql-mysql/out/storage/vml/libvml.so").function("Acquire@/home/krishna/orcasql-mysql/storage/vml/io_fence/IoFenceManager.cc:25")
-process("/home/krishna/orcasql-mysql/out/storage/vml/libvml.so").function("Acquire@/home/krishna/orcasql-mysql/storage/vml/io_fence/ScsiBasedIoFence.cc:492")
-process("/home/krishna/orcasql-mysql/out/storage/vml/libvml.so").function("AcquireWriteExclusiveAccess@/home/krishna/orcasql-mysql/storage/vml/io_fence/Scsi
+krishna@krishna:~/linux_perf_cheatsheet/scripts$ sudo stap -l 'process("/home/krishna/orcasql-mysql/out/storage/vml/libfoo.so").function("*")'
+process("/home/krishna/orcasql-mysql/out/storage/vml/libfoo.so").function("AbortTx@/home/krishna/orcasql-mysql/storage/vml/metadata/UndurableStorage.cc:340")
+process("/home/krishna/orcasql-mysql/out/storage/vml/libfoo.so").function("Acquire@/home/krishna/orcasql-mysql/storage/vml/io_fence/FileLockBasedIoFence.cc:28")
+process("/home/krishna/orcasql-mysql/out/storage/vml/libfoo.so").function("Acquire@/home/krishna/orcasql-mysql/storage/vml/io_fence/IoFenceManager.cc:25")
+process("/home/krishna/orcasql-mysql/out/storage/vml/libfoo.so").function("Acquire@/home/krishna/orcasql-mysql/storage/vml/io_fence/ScsiBasedIoFence.cc:492")
+process("/home/krishna/orcasql-mysql/out/storage/vml/libfoo.so").function("AcquireWriteExclusiveAccess@/home/krishna/orcasql-mysql/storage/vml/io_fence/Scsi
 
 
 Example: more comprehensive user process tracing
@@ -1345,7 +1385,7 @@ Pass 4: compiled C into "stap_d5aeeab3409fe551afedf1287cdf04a9_15083112.ko" in 1
 Pass 5: starting run.
 
 
-Sample output:- with verbose=1 and with call and return probes: process("/home/krishna/orcasql-mysql/out/storage/vml/libvml.so").function("PerformWriteInternal").return
+Sample output:- with verbose=1 and with call and return probes: process("/home/krishna/orcasql-mysql/out/storage/vml/libfoo.so").function("PerformWriteInternal").return
 ->PerformWriteInternal this={.m_aioContext=0x5622867d2f00, .m_filePath={._M_dataplus={._M_p="/tmp/chunk9.raw"}, ._M_string_length=15, <union>={._M_local_buf="/tmp/chunk9.raw", ._M_allocated_capacity=8460120955416310831}}, .m_fdBuffered=9, .m_fdUnbuffered=10, .m_isBlockDevice=0} ioRequest={.ioRequestType=1, .buf="8<l\277", .numBytes=16384, .offset=184614912, .cancelled=0, .chunkHandler=0x56228679b950, .cb=0x7f6837a60ffe, .cbParam=0x7f6624000e90, .ioAttrsAndStat=0x7f6624000f60} iocb={.data=0x0, .key=0, .__pad2=0, .aio_lio_opcode=0
 
 <-PerformWriteInternal return=0x1 latency:2628 micro sec tid:5909 cpu:14
