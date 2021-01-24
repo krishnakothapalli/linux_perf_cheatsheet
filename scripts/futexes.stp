@@ -1,5 +1,15 @@
 #! /usr/bin/env stap
 
+
+# Usage:-
+# -x is PID
+# -d is the library or executable path. when you run first time stap will show list of -d to add.
+# sudo stap -vv -x 1805 -DMAXACTION=10000  -DMAXSKIPPED=100000 -DSTP_NO_OVERLOAD -DMAXMAPENTRIES=100000 ~/futexes.stp  -d .... -d ...
+
+# Modified
+# Ref: https://sourceware.org/systemtap/examples/
+#  process/futexes.stp - System-Wide Futex Contention
+
 # This script tries to identify contended user-space locks by hooking
 # into the futex system call.
 
@@ -11,16 +21,30 @@ global lock_waits # long-lived stats on (tid,lock) blockage elapsed time
 global process_names # long-lived pid-to-execname mapping
 
 global entry_times%, uaddrs%
+global verbose = 0
+// sample stack trace where mutex was locked, if known
+global mutex_run_stack
+// stack trace where mutex was initialized, if known
+global mutex_init_stack
+global max_wait_threshold_ms=10 // 10 ms - adjust this as needed
 
 probe syscall.futex {
   if ((op & ~(FUTEX_PRIVATE_FLAG|FUTEX_CLOCK_REALTIME)) != FUTEX_WAIT) next
   entry_times[tid()] = gettimeofday_us()
   uaddrs[tid()] = futex_uaddr
+  if(verbose == 1) {
+    printf ("Futex:lock %p\n",futex_uaddr);
+  }
+
+  if(!([pid(), futex_uaddr] in mutex_run_stack)) {
+     mutex_run_stack[pid(), futex_uaddr] = sprint_ubacktrace()
+  } 
 }
 
 probe syscall.futex.return {
   if (!(entry_times[tid()])) next
   elapsed = gettimeofday_us() - entry_times[tid()]
+  
   lock_waits[pid(), uaddrs[tid()]] <<< elapsed
   delete entry_times[tid()]
   delete uaddrs[tid()]
@@ -29,8 +53,64 @@ probe syscall.futex.return {
 }
 
 probe end {
-  foreach ([pid+, lock] in lock_waits) 
-    printf ("%s[%d] lock %p contended %d times, %d avg us\n",
-            process_names[pid], pid, lock, @count(lock_waits[pid,lock]),
-            @avg(lock_waits[pid,lock]))
+  warn_string = "WARNING WATCH THIS";
+
+  // First print the summary of the locks
+  printf("Summary of lock contentions\n");
+  foreach ([pid+, lock] in lock_waits) {
+    str = ""
+    if(@max(lock_waits[pid,lock])/1000 >= max_wait_threshold_ms) {
+      str = warn_string;
+    }
+    printf("%d max ms, %d avg ms, %s[%d] lock %p contended %d times, %d min %s\n",
+            @max(lock_waits[pid,lock])/1000,
+            @avg(lock_waits[pid,lock])/1000, 
+            process_names[pid], pid, lock,
+            @count(lock_waits[pid,lock]),
+            @min(lock_waits[pid,lock])/1000,
+            str);
+  }
+  printf("----------------------------\n");
+  printf("Init and run stacks of the locks\n");
+
+  // First print the summary of the locks  
+  foreach ([pid+, lock] in lock_waits) {
+    str = ""
+    if(@max(lock_waits[pid,lock])/1000 > max_wait_threshold_ms) {
+      str = warn_string;
+    }
+    
+    printf("%d max ms, %d avg ms, %s[%d] lock %p contended %d times, %d min ms %s\n",
+            @max(lock_waits[pid,lock])/1000,
+            @avg(lock_waits[pid,lock])/1000, 
+            process_names[pid], pid, lock,
+            @count(lock_waits[pid,lock]),
+            @min(lock_waits[pid,lock])/1000,
+            str);
+    print( @hist_linear(lock_waits[pid, lock],0,0,10000) )
+            
+     if ([pid, lock] in mutex_init_stack) {
+         printf("Lock init stack:\n %s uaddr:%p \n", mutex_init_stack[pid, lock], lock)
+     }
+     if ([pid, lock] in mutex_run_stack) {
+         printf("Lock sample run stack:\n %s uaddr:%p \n", mutex_run_stack[pid, lock], lock)
+     }
+              
+     printf("------------------------------\n"); 
+  }
+}
+
+// THIS IS NOT WORKING PROPERLY
+// leaving this as it is for now
+probe process("/lib/x86_64-linux-gnu/libpthread-2.27.so").function("__pthread_mutex_init")
+//process("/lib/x86_64-linux-gnu/libpthread-2.27.so").function("pthread_mutex_init"),
+//  process("/lib/x86_64-linux-gnu/libpthread-2.27.so").function("__pthread_rwlock_init"),
+//  process("/lib/x86_64-linux-gnu/libpthread-2.27.so").function("pthread_rwlock_init")  
+{
+
+  if(@defined($mutex)) {
+     mutex_init_stack[pid(), $mutex] = sprint_ubacktrace()
+     // unresolved: print_ubacktrace_fileline()
+  }
+
 }

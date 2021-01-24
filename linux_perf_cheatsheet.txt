@@ -508,10 +508,11 @@ Note:
  - link with -rdynamic for better traces
    gcc -O -g3  simple.cc -o /tmp/simple -lpthread -rdynamic;
  - program has to exit to capture traces
- - use higher --hash-size=100000 (if you see messages like mutrace: WARNING: 1739093 internal hash collisions detected. Results might not be as reliable as they could be.mutrace:          Try to increase --hash-size=, which is currently at 3371.)
+ - use higher --hash-size=1000000 (if you see messages like mutrace: WARNING: 1739093 internal hash collisions detected. Results might not be as reliable as they could be.mutrace:          Try to increase --hash-size=, which is currently at 3371.)
   - program should not crash
+  - This might be better: mutrace  --hash-size=1000000 --max=100 --locked-min=1000
   
-~/linux_perf_cheatsheet$ mutrace  --hash-size=100000 /tmp/simple
+~/linux_perf_cheatsheet$ mutrace  --hash-size=1000000 /tmp/simple
 mutrace: 0.2 sucessfully initialized for process simple (pid 53366).
 io_threads are running ...
 cpu_threads are running ...
@@ -583,7 +584,34 @@ $ c++filt _Z2f4i
 f4(int)
 
 Then use gdb to find the line number:-
+  Ref: https://sourceware.org/gdb/current/onlinedocs/gdb/Machine-Code.html
   Ref: https://stackoverflow.com/questions/22769246/how-to-disassemble-one-single-function-using-objdump
+
+
+C++ is a bit tricky use gd directly
+        /home/krishna/mysql/bin/libfoo.so(bar+0x22d) [0x7f4445bf413d] <---- need to decode this
+$gdb ./out/storage/vml/libfoo.so
+(gdb) info func bar
+All functions matching regular expression "bar":
+
+File /home/krishna/debug-build/storage/vml/VmlManager.cc:
+vml::VmlError vml::bar();
+(gdb) disas/rs 'vml::bar()'
+Dump of assembler code for function vml::bar():
+/home/krishna/debug-build/storage/vml/VmlManager.cc:
+697     extern "C" PUBLIC_SYMBOL VmlError bar() {
+   0x000000000019bf10 <+0>:     55      push   %rbp
+...
+/home/krishna/debug-build/storage/vml/VmlManager.cc:
+706         LOG_ERROR("bar: Error in clearing metadata %s",
+   0x000000000019bfe5 <+213>:   48 8d 35 fc 3a 0a 00    lea    0xa3afc(%rip),%rsi        # 0x23fae8
+   0x000000000019bfec <+220>:   48 89 df        mov    %rbx,%rdi
+   0x000000000019bfef <+223>:   b9 02 00 00 00  mov    $0x2,%ecx
+   0x000000000019bff4 <+228>:   ba c3 02 00 00  mov    $0x2c3,%edx <-----------see approx +0x22d
+   0x000000000019bff9 <+233>:   e8 12 8b f6 ff  callq  0x104b10 <_ZN6google10LogMessageC1EPKcii@plt> <-- likely this
+   0x000000000019bffe <+238>:   48 89 df        mov    %rbx,%rdi
+   0x000000000019c001 <+241>:   e8 ba 58 f7 ff  callq  0x1118c0 <_ZN6google10LogMessage6streamEv@plt>
+
 
 
 $ gdb -batch -ex "disassemble/rs f4" /tmp/simple <-- here we wanted to disass function f4() Now below see +0x43
@@ -628,42 +656,76 @@ End of assembler dump.
 Eg., diassamble an address in an library
 
 Mutex #46279 (0x0x7fbac5a00f80) first referenced by:
-	/usr/lib/mutrace/libmutrace.so(pthread_mutex_lock+0x47) [0x7fbac5c29827]
-	/home/krishna/mysql/bin/libfoo.so(+0x128c45) [0x7fbac5647c45] <-- need to decode this +0x128c45 in libfoo.so
-	/home/krishna/mysql/bin/libfoo.so(+0x1328f3) [0x7fbac56518f3]
-	/home/krishna/mysql/bin/libfoo.so(+0x137981) [0x7fbac5656981]
-	/home/krishna/mysql/bin/libfoo.so(+0x13870a) [0x7fbac565770a]
+        /usr/lib/mutrace/libmutrace.so(pthread_mutex_lock+0x47) [0x7fbac5c29827]
+        /home/krishna/mysql/bin/libfoo.so(+0x128c45) [0x7fbac5647c45] <-- need to decode this +0x128c45 in libfoo.so
+        /home/krishna/mysql/bin/libfoo.so(+0x1328f3) [0x7fbac56518f3]
+        /home/krishna/mysql/bin/libfoo.so(+0x137981) [0x7fbac5656981]
+        /home/krishna/mysql/bin/libfoo.so(+0x13870a) [0x7fbac565770a]
 
 $gdb -batch -ex "disas/rs 0x128c45" ./out/storage/vml/libfoo.so
 ...
 SEE the full function to get better context ... not putting it  here.
 
-32	    std::lock_guard<decltype(
-33	        io_context->all_completed_io_events_queue_mutex)>
+32          std::lock_guard<decltype(
+33              io_context->all_completed_io_events_queue_mutex)>
 
 /home/krishna/apis/NativeAioContext.cc:
-40	}
+40      }
 /usr/include/c++/7/bits/unique_ptr.h:
-78		delete __ptr;
-   0x0000000000128c29 <+393>:	4c 89 ff	mov    %r15,%rdi
-   0x0000000000128c2c <+396>:	be 10 00 00 00	mov    $0x10,%esi
+78              delete __ptr;
+   0x0000000000128c29 <+393>:   4c 89 ff        mov    %r15,%rdi
+   0x0000000000128c2c <+396>:   be 10 00 00 00  mov    $0x10,%esi
 
 /home/krishnay/apis/NativeAioContext.cc:
-40	}
+40      }
 
 /usr/include/c++/7/bits/unique_ptr.h:
-78		delete __ptr;
-   0x0000000000128c3b <+411>:	e9 20 93 fd ff	jmpq   0x101f60 <_ZdlPvm@plt>
+78              delete __ptr;
+   0x0000000000128c3b <+411>:   e9 20 93 fd ff  jmpq   0x101f60 <_ZdlPvm@plt>
 
 /usr/include/c++/7/bits/deque.tcc:
-921		= this->_M_impl._M_finish._M_node - this->_M_impl._M_start._M_node + 1;
-   0x0000000000128c40 <+416>:	48 8b 7d c0	mov    -0x40(%rbp),%rdi
-   0x0000000000128c44 <+420>:	48 8b b3 b8 00 00 00	mov    0xb8(%rbx),%rsi    <-- +0x128c45 is here (looks like its deleting this node from dequeue and using lock)
-   0x0000000000128c4b <+427>:	48 89 f8	mov    %rdi,%rax
-   0x0000000000128c4e <+430>:	48 29 f0	sub    %rsi,%rax
-   0x0000000000128c51 <+433>:	48 c1 f8 03	sar    $0x3,%rax
+921             = this->_M_impl._M_finish._M_node - this->_M_impl._M_start._M_node + 1;
+   0x0000000000128c40 <+416>:   48 8b 7d c0     mov    -0x40(%rbp),%rdi
+   0x0000000000128c44 <+420>:   48 8b b3 b8 00 00 00    mov    0xb8(%rbx),%rsi    <-- +0x128c45 is here (looks like its deleting this node from dequeue and using lock)
+   0x0000000000128c4b <+427>:   48 89 f8        mov    %rdi,%rax
+   0x0000000000128c4e <+430>:   48 29 f0        sub    %rsi,%rax
+   0x0000000000128c51 <+433>:   48 c1 f8 03     sar    $0x3,%rax
 
-* system tap futex contention
+* system tap futex contention (print stack traces)
+
+Ref: https://sourceware.org/systemtap/examples/  process/futexes.stp - System-Wide Futex Contention
+
+modified the script for stack traces
+
+# Usage:-
+ -x is PID
+ -d is the library or executable path. when you run first time stap will show list of -d to add.
+sudo stap -vv -x 1805 -DMAXACTION=10000  -DMAXSKIPPED=100000 -DSTP_NO_OVERLOAD -DMAXMAPENTRIES=100000 ~/futexes.stp  -d .... -d ...
+...
+CTRL-C
+
+Summary of lock contentions
+452 max ms, 148 avg ms, mysqld-vml[1805] lock 0x7fd0f83d4d18 contended 65 times, 25 min WARNING WATCH THIS
+383 max ms, 191 avg ms, mysqld-vml[1805] lock 0x7fd0f4833818 contended 4 times, 0 min WARNING WATCH THIS
+656 max ms, 182 avg ms, mysqld-vml[1805] lock 0x55fb55d743e0 contended 21 times, 2 min WARNING WATCH THIS
+
+2049 max ms, 13 avg ms, mysqld-vml[1805] lock 0x7fd0f83d7430 contended 909 times, 0 min ms WARNING WATCH THIS
+ value |-------------------------------------------------- count
+     0 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@   822
+    >0 |@@@@@                                               87
+
+Lock sample run stack:
+ __lll_lock_wait+0x1d [libpthread-2.27.so]
+__pthread_mutex_lock+0x55 [libpthread-2.27.so]
+_ZN3vml22aio_write_callbackEPKvNS_8VmlErrorE+0x8e [libvml.so]
+_ZN3vmlL22HandlerIoCallbackEPKvNS_8VmlErrorE+0xbc [libvml.so]
+_ZN3vml17HandlerAioContext14ThreadFunctionEP9AioEvents+0x241 [libvml.so]
+_ZNSt6thread11_State_implINS_8_InvokerISt5tupleIJZN3vml16ThreadPoolThreadI4iocb9AioEventsNS3_8AioQueueEEC4EPNS3_10ThreadPoolIS5_S6_S7_EEEUlvE_EEEEE6_M_runEv+0x44 [libvml.so]
+
+
+
+
+* OLD system tap futex contention (SEE previous section for stack traces all)
 
 Ref: https://sourceware.org/systemtap/examples/
  process/futexes.stp - System-Wide Futex Contention
@@ -1196,9 +1258,30 @@ SystemTap is a tracing and probing tool that allows users to study and monitor t
 In Ubuntu distro works only for user process, not for kernel. "However, SystemTap never fully merged into the Linux kernel (parts did, like uprobes), so as an out-of-tree project it required maintenance to work at all, and Red Hat only did this for RHEL." Ref: http://www.brendangregg.com/blog/2018-10-08/dtrace-for-linux-2018.html
 
 Ref: https://sourceware.org/systemtap/langref/ GOOD one
+     https://sourceware.org/systemtap/documentation.html GOOD 
      https://sourceware.org/systemtap/SystemTap_Beginners_Guide/
      all functions https://manpages.debian.org/testing/systemtap-doc/index.html
      https://sourceware.org/systemtap/examples/index.html good examples
+
+Ubuntu installation
+---------------------------
+Does not work https://wiki.ubuntu.com/Kernel/Systemtap
+
+Download appropriate elfutils from: https://launchpad.net/ubuntu/+source/elfutils/
+./configure
+make
+sudo make install
+
+
+https://sourceware.org/git/?p=systemtap.git;a=blob_plain;f=README;hb=HEAD
+
+wget git clone git://sourceware.org/git/systemtap.git
+
+./configure --with-elfutils=/home/krishna/elfutils-0.170
+
+./configure  '--with-elfutils=/home/krishna/elfutils-0.170' python='/usr/bin/python2' pyexecdir='${exec_prefix}/lib/python2.7/dist-packages' python3='/usr/bin/python3'
+
+
 
 Example: Print call trace
 -------------------------------
@@ -1405,6 +1488,12 @@ function:f4, latency microsec mean:28479143, variance:15604731554753 std-dev:sqr
 function:io_thread_function, latency microsec mean:109169027, variance:1916802280 std-dev:sqrt(1916802280) count:3 total:327507081  WATCH THIS
 function:main, latency microsec mean:109219953, variance:0 std-dev:sqrt(0) count:1 total:109219953  WATCH THIS
 
+
+how to do multiple probes in single function code
+--------------------------------------------
+probe process("/tmp/simple").function("cpu_thread_function"),process("/tmp/simple").function("f1"),process("/tmp/simple").function("f2"),process("/tmp/simple").function("f3"),process("/tmp/simple").function("f4"),process("/tmp/simple").function("io_thread_function"),process("/tmp/simple").function("isPrime"),process("/tmp/simple").function("main"),process("/tmp/simple").function("sigint_handler")
+{
+}
 
 GOOD Show Time Spent on Each Line of a Function
 ---------------------------------------------
