@@ -16,9 +16,11 @@
 # sudo stap linetimes.stp "/tmp/simple" "f4" -c '/tmp/simple'
 
 global calls, times, last_pp, region, cfg
+global function_time;
 
 probe process(@1).function(@2).call { calls <<< 1 }
 probe process(@1).function(@2).return {
+  function_time <<< gettimeofday_us() - @entry(gettimeofday_us());
   t = gettimeofday_us()
   s = times[tid()]
   if (s) {
@@ -43,10 +45,19 @@ probe process(@1).statement(@2 "@*:*") {
 }
 
 probe end {
+  printf("%s function total time stats in micro seconds\n", @2);
+  print(" count:", @count(function_time));
+  print(" min:", @min(function_time));
+  print(" max:", @max(function_time));
+  print(" avg:", @avg(function_time));
+
+  print(" Histogram:\n");
+  print(@hist_log(function_time));
+  
   printf("\n%s %s call count: %d\n", @1, @2, @count(calls));
-  printf("\n%-58s %10s %10s\n", "region", "avg(us)", "max(us)");
+  printf("\n%-58s %10s %10s %10s\n", "region", "avg(us)", "max(us)", "count");
   foreach (p+ in region) {
-    printf("%-58s %10d %10d\n", p, @avg(region[p]), @max(region[p]));
+    printf("%-58s %10d %10d %10d\n", p, @avg(region[p]), @max(region[p]), @count(region[p]));
   }
 
   printf("\n\ncontrol flow graph information\n")

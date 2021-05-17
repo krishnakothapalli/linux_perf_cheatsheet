@@ -1,0 +1,18 @@
+// usage sudo stap function_latency.stp "/tmp/simple" "f4"
+global function_time;
+probe process(@1).function(@2).return // GOOD  FOR function latency
+{
+  // for nano seconds use gettimeofday_ns() - @entry(gettimeofday_ns())
+  function_time <<< gettimeofday_us() - @entry(gettimeofday_us());
+}
+
+probe end {
+  printf("@2 function time stats in micro seconds\n");
+  print(" count:", @count(function_time));
+  print(" min:", @min(function_time));
+  print(" max:", @max(function_time));
+  print(" avg:", @avg(function_time));
+
+  print(" Histogram:\n");
+  print(@hist_log(function_time));
+}

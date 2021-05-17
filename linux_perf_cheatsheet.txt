@@ -499,6 +499,7 @@ https://github.com/iovisor/bcc/blob/master/tools/wakeuptime_example.txt
 ==========================================================================
 * mutrace Measuring mutex lock contention
 
+#see also  sudo stap ~/linux_perf_cheatsheet/scripts/mutexes.stp
 Ref: http://0pointer.de/blog/projects/mutrace.html
 
 sudo apt-get install mutrace
@@ -507,12 +508,14 @@ Note:
  - This tool report lock contention (valgrind drd does not report contention)
  - link with -rdynamic for better traces
    gcc -O -g3  simple.cc -o /tmp/simple -lpthread -rdynamic;
- - program has to exit to capture traces
+ - program has to exit to capture traces <--
  - use higher --hash-size=1000000 (if you see messages like mutrace: WARNING: 1739093 internal hash collisions detected. Results might not be as reliable as they could be.mutrace:          Try to increase --hash-size=, which is currently at 3371.)
   - program should not crash
-  - This might be better: mutrace  --hash-size=1000000 --max=100 --locked-min=1000
-  
-~/linux_perf_cheatsheet$ mutrace  --hash-size=1000000 /tmp/simple
+  - This might be better: mutrace  --hash-size=1000000 --max=10000 --debug-info
+   - Use this to see the debug function names and line numbers: GOOD GOOD <--
+      LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libbfd-2.30-system.so mutrace  --hash-size=1000000 --max=100--debug-info
+      
+~/linux_perf_cheatsheet$ mutrace  --hash-size=1000000 /tmp/simple 
 mutrace: 0.2 sucessfully initialized for process simple (pid 53366).
 io_threads are running ...
 cpu_threads are running ...
@@ -561,6 +564,46 @@ mutrace: Total runtime is 13614.505 ms.
 mutrace: Results for SMP with 16 processors.
 
 
+
+best way to decode is to use gdb
+---------------------------------
+Eg., need to decode _ZN3vml22vml_aio_write_callbackEPKvNS_8VmlErrorE+0x8e [libvml.so]
+
+Need to have source code:-
+gdb libvml.so
+(gdb) disass/rs _ZN3vml22vml_aio_write_callbackEPKvNS_8VmlErrorE+0x8e
+325     void vml_aio_write_callback(const void *ctx, VmlError e) {
+   0x000000000012de10 <+0>:     push   %rbp <-- see function start address 0x000000000012de10
+
+Now find what is the addr of _ZN3vml22vml_aio_write_callbackEPKvNS_8VmlErrorE+0x8e  =  0x000000000012de10+0x8e =
+
+(gdb) p/x 0x000000000012de10+0x8e
+$13 = 0x12de9e
+
+Now you can see 0x12de9e from  (gdb) disass/rs _ZN3vml22vml_aio_write_callbackEPKvNS_8VmlErrorE+0x8e
+
+/usr/include/c++/7/bits/std_mutex.h:
+106           if (__e)
+   0x000000000012de9e <+142>:   85 c0   test   %eax,%eax
+
+NOW how to find out code which calls the above:-
+Use disass/m <-- see /m which shows only lines from the method
+(gdb) disass/m _ZN3vml22vml_aio_write_callbackEPKvNS_8VmlErrorE+0x8e
+
+   0x000000000012de85 <+117>:   callq  0x101e00 <_ZdlPvm@plt>
+
+345     
+346       {
+347         std::lock_guard<decltype(io_ctx->all_completed_io_events_queue_mutex)> <-- this is close to 0x000000000012de9e!!!!
+348             guard(io_ctx->all_completed_io_events_queue_mutex);
+349         io_ctx->all_completed_io_events_queue.push_back(
+   0x000000000012deaa <+154>:   lea    0x90(%r12),%rdi
+
+
+
+--- old info
+
+
 how to decode:- <-- this gives the function name and not the line number
  $ c++filt _Z19cpu_thread_functionPv+0x2c
   _Z19cpu_thread_functionPv+0x2c
@@ -588,7 +631,7 @@ Then use gdb to find the line number:-
   Ref: https://stackoverflow.com/questions/22769246/how-to-disassemble-one-single-function-using-objdump
 
 
-C++ is a bit tricky use gd directly
+C++ is a bit tricky, use gdb directly
         /home/krishna/mysql/bin/libfoo.so(bar+0x22d) [0x7f4445bf413d] <---- need to decode this
 $gdb ./out/storage/vml/libfoo.so
 (gdb) info func bar
@@ -596,7 +639,7 @@ All functions matching regular expression "bar":
 
 File /home/krishna/debug-build/storage/vml/VmlManager.cc:
 vml::VmlError vml::bar();
-(gdb) disas/rs 'vml::bar()'
+(gdb) disas/rs 'vml::bar()' <------------- NOT with in quotes
 Dump of assembler code for function vml::bar():
 /home/krishna/debug-build/storage/vml/VmlManager.cc:
 697     extern "C" PUBLIC_SYMBOL VmlError bar() {
@@ -691,8 +734,9 @@ SEE the full function to get better context ... not putting it  here.
    0x0000000000128c4e <+430>:   48 29 f0        sub    %rsi,%rax
    0x0000000000128c51 <+433>:   48 c1 f8 03     sar    $0x3,%rax
 
-* system tap futex contention (print stack traces)
+* system tap futex contention (print stack traces) mutex contention
 
+SEE also mutexes.stp
 Ref: https://sourceware.org/systemtap/examples/  process/futexes.stp - System-Wide Futex Contention
 
 modified the script for stack traces
@@ -700,10 +744,13 @@ modified the script for stack traces
 # Usage:-
  -x is PID
  -d is the library or executable path. when you run first time stap will show list of -d to add.
-sudo stap -vv -x 1805 -DMAXACTION=10000  -DMAXSKIPPED=100000 -DSTP_NO_OVERLOAD -DMAXMAPENTRIES=100000 ~/futexes.stp  -d .... -d ...
+sudo stap -vv -x 1805 -DMAXACTION=10000  -DMAXSKIPPED=100000 -DSTP_NO_OVERLOAD -DMAXMAPENTRIES=100000 ~/futexes.stp  -d .... -d /home/narwhal/mysql/bin/mysqld-vml
+
+  <-- stap will mention the location of path -d ... 
 ...
 CTRL-C
-
+To sort the below use this:-
+ $ sort -r -n -k1 2.txt|grep mysqld-vml
 Summary of lock contentions
 452 max ms, 148 avg ms, mysqld-vml[1805] lock 0x7fd0f83d4d18 contended 65 times, 25 min WARNING WATCH THIS
 383 max ms, 191 avg ms, mysqld-vml[1805] lock 0x7fd0f4833818 contended 4 times, 0 min WARNING WATCH THIS
@@ -754,6 +801,11 @@ The address  they capture is uaddr in the above call (eg., simple[31319] lock 0x
 Linux valgrind's drd can be used to track down long held mutexes.
 Note: This does not find mutex contention.
 Ref: https://www.valgrind.org/docs/manual/drd-manual.html
+
+valgrind drd is very very slow (overnight did not complete). Valgrind runs on only one processor (so extreme slowdown and may not even rin the program).
+rm  /home/narwhal/mysqld-vml.err;rm -rf /tmp/mysql.soc;  mkdir  /tmp/tablespaces; readlink -f /dev/disk/azure/scsi1/lun0-part* | xargs sudo chmod 777 ;export VML_LOG_TO_CONSOLE=1 ;   valgrind --tool=drd  --log-file=/home/narwhal/val.txt --exclusive-threshold=200 --first-race-only=yes --report-signal-unlocked=no --show-confl-seg=no --segment-merging=no --report-signal-unlocked=no  --fair-sched=yes 
+
+rm  /home/narwhal/mysqld-vml.err;rm -rf /tmp/mysql.soc;  mkdir  /tmp/tablespaces; readlink -f /dev/disk/azure/scsi1/lun0-part* | xargs sudo chmod 777 ;export VML_LOG_TO_CONSOLE=1 ; valgrind --tool=drd  --exclusive-threshold=20 --first-race-only=yes --show-confl-seg=no /home/narwhal/mysql/bin/mysqld-vml --defaults-file=~/primary.cnf --use_vml --disable-log-bin  --datadir=/datadrive --log-error=/home/narwhal/mysqld-vml.err  --innodb-buffer-pool-dump-at-shutdown=OFF --innodb-physical-replica-shared-info-dir=/replica_shared_folder --core-file
 
 Reports all locks that are held for more than 10ms (--exclusive-threshold=10)
 krishna@krishna:~/linux_perf_cheatsheet$ valgrind --tool=drd  --exclusive-threshold=10 /tmp/simple
@@ -925,12 +977,14 @@ Pick the application/process and profile it.
  $ sudo perf record -p 20261 
  ^C[ perf record: Woken up 4 times to write data ]
  [ perf record: Captured and wrote 3.690 MB perf.data (70750 samples) ]
-
+eg.,
+sudo perf record -p $(pidof fio)
 Then filter the library as follows:
 -  focus on shared library dso in interactive "perf report" (find any sample from the library,
    open menu and select focus on library.so; ).
 
-- perf report -d library.so
+- sudo perf report -d library.so --stdio
+
 
 - You can also filter samples decoded from perf.data file like perf script | grep library.so | less
 
@@ -1268,18 +1322,28 @@ Ubuntu installation
 Does not work https://wiki.ubuntu.com/Kernel/Systemtap
 
 Download appropriate elfutils from: https://launchpad.net/ubuntu/+source/elfutils/
+eg., for bionic wget https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/elfutils/0.170-0.4ubuntu0.1/elfutils_0.170.orig.tar.bz2
+bunzip2 elfutils_0.170.orig.tar.bz2
+tar xf elfutils_0.170.orig.tar
+ cd elfutils-0.170/
 ./configure
 make
 sudo make install
 
+#/home/narwhal/elfutils-0.170
 
 https://sourceware.org/git/?p=systemtap.git;a=blob_plain;f=README;hb=HEAD
 
-wget git clone git://sourceware.org/git/systemtap.git
+git clone git://sourceware.org/git/systemtap.git
+(#OR   wget https://sourceware.org/systemtap/ftp/releases/systemtap-4.5.tar.gz;tar zxf systemtap-4.5.tar.gz;cd systemtap-4.5/)
 
+cd systemtap/
 ./configure --with-elfutils=/home/krishna/elfutils-0.170
 
 ./configure  '--with-elfutils=/home/krishna/elfutils-0.170' python='/usr/bin/python2' pyexecdir='${exec_prefix}/lib/python2.7/dist-packages' python3='/usr/bin/python3'
+
+make
+sudo make install
 
 
 
@@ -1332,6 +1396,12 @@ void f1(int c) {
   printf(".");
 }
 
+
+Listing variables availabe in a function
+----------------------------------------
+
+narwhal@replica1:~$ date;sudo stap -L  'process("/home/narwhal/mysql/lib/libvml.so").function("PerformSyncIoRequest")'
+process("/home/narwhal/mysql/lib/libvml.so").function("PerformSyncIoRequest@/home/narwhal/xnerv/storage/vml/dispatcher/DispatcherWorkItem.cc:300") $this:class DispatcherWorkItem* const $dispatcherError:enum VmlError $curOffset:uint64_t
 
 List matching probes in a file or library
 ------------------------------------------------------------
@@ -1418,8 +1488,8 @@ probe process("/tmp/simple").syscall.return
         printf("%s ret:%d\n", syscall_name($syscall), $return);
    }
 
-global f3_time;
-probe process("/tmp/simple").function("f3").return
+global f3_time; 
+probe process("/tmp/simple").function("f3").return // GOOD VERY GOOD FOR function latency
    {
       // operator <<< stores the value in the aaray "f3_time"
       f3_time <<< gettimeofday_ns() - @entry(gettimeofday_ns());
@@ -1495,6 +1565,100 @@ probe process("/tmp/simple").function("cpu_thread_function"),process("/tmp/simpl
 {
 }
 
+
+
+GOOD find a function latency
+-------------------------------
+
+below one monitors for 60 seconds
+for low overhead probing use this
+   date;sudo stap -v ./systemtap/function_latency.stp "/home/narwhal/mysql/lib/libvml.so" "vml_pwrite64" -T 60
+
+for more overhead probing but more line level details use this:-
+
+date;sudo stap -v ./linetimes.stp "/home/krishna/mysql/lib/libfoo.so" "vml_internal_fsync" -T 60
+Mon Apr  5 22:13:18 UTC 2021
+Pass 1: parsed user script and 480 library scripts using 125500virt/97300res/5808shr/91824data kb, in 290usr/60sys/353real ms.
+Pass 2: analyzed script: 45 probes, 5 functions, 1 embed, 8 globals using 147752virt/120484res/6832shr/114076data kb, in 400usr/10sys/411real ms.
+Pass 3: using cached /home/krishna/.systemtap/cache/48/stap_48f1f86025569a8d2a722bf883ded071_31011.c
+Pass 4: using cached /home/krishna/.systemtap/cache/48/stap_48f1f86025569a8d2a722bf883ded071_31011.ko
+Pass 5: starting run.
+  C-c C-cvml_internal_fsync function total time stats in micro seconds
+ count:1486 min:117 max:13333 avg:566 Histogram:
+value |-------------------------------------------------- count
+   16 |                                                      0
+   32 |                                                      0
+   64 |@@                                                   54
+  128 |@@@@@@@@@@@@@@@@                                    345
+  256 |                                                     16
+  512 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  1034
+ 1024 |                                                     20
+ 2048 |                                                      4
+ 4096 |                                                     10
+ 8192 |                                                      3
+16384 |                                                      0
+32768 |                                                      0
+
+
+/home/krishna/mysql/lib/libfoo.so vml_internal_fsync call count: 1486
+
+region                                                        avg(us)    max(us)      count
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:573")          5         48       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:577")         10         89       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:579")          4         58       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:580")          4         68       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:582")          7         40       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:583")          7        441       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:589")          6         76       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:594")          7        169       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:609")          5         49       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:610")          6         56       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:622")          6        166       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:637")          7        328       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:639")          6         59       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:642")        425      13199       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:644")         10        127       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:646")          7        100       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:653")          7        102       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:664")          7         63       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:668")          7        175       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:680")          7        145       1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:681")          7         78       1486
+
+
+control flow graph information
+from
+	to
+---------------------------        
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:573")
+	process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:577") 1486
+process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_posix_io_apis.cc:577")
+	process("/home/krishna/mysql/lib/libfoo.so").statement("vml_internal_fsync@/home/krishna/storage/vml/linux_apis/apis/vml_po
+
+...
+
+
+
+// usage sudo stap function_latency.stp "/tmp/simple" "f4"
+global function_time;
+probe process(@1).function(@2).return // GOOD  FOR function latency
+{
+  // for nano seconds use gettimeofday_ns() - @entry(gettimeofday_ns())
+  function_time <<< gettimeofday_us() - @entry(gettimeofday_us());
+}
+
+probe end {
+  printf("@2 function time stats in micro seconds\n");
+  print(" count:", @count(function_time));
+  print(" min:", @min(function_time));
+  print(" max:", @max(function_time));
+  print(" avg:", @avg(function_time));
+
+  print(" Histogram:\n");
+  print(@hist_log(function_time));
+}
+
+
 GOOD Show Time Spent on Each Line of a Function
 ---------------------------------------------
 Ref: https://sourceware.org/systemtap/examples/index.html#profiling/linetimes.stp
@@ -1517,9 +1681,18 @@ Eg., here is a sample function with line numbers. A few line times are annotated
 102  pthread_mutex_unlock(&mutex3); <-- avg(us):74 max: 99
 103}
 
-$sudo stap linetimes.stp "/tmp/simple" "f4" -c '/tmp/simple'
-io_threads are running ...
-cpu_threads are running ...
+
+To find the list of funtions:
+  /usr/bin/stap -l 'process("/home/krishna/mysql/bin/libfoo.so").function("*")' > j.txt
+Very simple to run:- works for C++ also nicely
+   $ sudo stap -v linetimes.stp "/home/krishna/mysql/bin/libfoo.so" "FooBarFunction"
+   $ sudo stap -v linetimes.stp "/home/krishna/mysql/bin/foo.bin" "FooBarFunction" 
+  Now run the program
+
+Another way to run
+  $sudo stap linetimes.stp "/tmp/simple" "f4" -c '/tmp/simple'
+  io_threads are running ...
+  cpu_threads are running ...
 
 /tmp/simple f4 call count: 37
 
@@ -1541,7 +1714,7 @@ process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.
 control flow graph information
 from
         to
-=======================
+---------------------
 process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:100")
         process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:101") 35
 process("/tmp/simple").statement("f4@/home/krishna/linux_perf_cheatsheet/simple.cc:101")
@@ -1655,6 +1828,32 @@ Multiple probes can be specified using a ","
 ---------------------------------------------------
 
 sudo stap -e 'probe process("/tmp/foo.so").function("f1"),process("/tmp/foo.so").function("f2") { printf("hello");}'
+
+
+
+GOOD mutexes mutex contention 
+--------------------------------------------
+SEE also futexes.stp in this notes.
+
+start process mysqld-vml
+
+Ref: https://raw.githubusercontent.com/alanconway/systemtap/master/mutexes.stp
+( i modified mutexes.stp slightly)
+
+sudo stap ~/linux_perf_cheatsheet/scripts/mutexes.stp -x $(pidof mysqld-vml) -d /home/narwhal/orcasql-mysql/out/runtime_output_directory/mysqld-vml --ldd -v
+Ctrl-C
+
+
+=== mutex 0x7f05f8692388 contended 20725 times, 300098us total, 14us avg, 965us max
+_Z14os_event_resetP8os_event+0x16 [mysqld-vml]
+_Z23async_log_reader_threadv+0x5dc [mysqld-vml]
+_ZNSt6thread11_State_implINS_8_InvokerISt5tupleIJ8RunnablePFvvEEEEEE6_M_runEv+0x63 [mysqld-vml]
+_ZNKSt10error_code23default_error_conditionEv+0x2f [libstdc++.so.6.0.25]
+
+
+==== mutex 0x55d077f0bb50 contended 2 times, 91us total, 45us avg, 60us max
+_ZN3vml12IoDispatcher19GetChunkHandlerByIDEt+0x33 [libvml.so] <-- to decode this see "gdb libvml.so"
+
 
 
 ==========================================================
@@ -1948,7 +2147,10 @@ int main(void) {
 }
 
 ============================================================
-* pgo profile guide optimization
+* pgo profile guide optimization (two pass compilation)
+
+
+GOOD See https://gist.github.com/daniel-j-h/c4b109bff0b717fc9b24
 
 Ref:
   What Every Programmer Should Know About Memory https://akkadia.org/drepper/cpumemory.pdf
@@ -2177,3 +2379,129 @@ The following options control optimizations:
   -fipa-profile                         [enabled]
   ..xs
 =======================================================================
+C++
+--
+
+g++ lock.cc -latomic; 
+
+#include <iostream>
+#include <utility>
+#include <atomic>
+
+struct A { int a[100]; };
+struct B { int x, y; };
+std::atomic<uint64_t> counter;
+int main()
+{
+
+  // Ref: https://en.cppreference.com/w/cpp/atomic/atomic/is_lock_free
+  std::cout << "std::atomic<uint64_t> is lock_free:"
+            << std::atomic<uint64_t>{}.is_lock_free() <<  '\n';
+  // prints std::atomic<uint64_t> is lock_free:1
+  
+  std::cout << std::boolalpha
+            << "std::atomic<A> is lock free? "
+            << std::atomic<A>{}.is_lock_free() << '\n'
+            << "std::atomic<B> is lock free? "
+            << std::atomic<B>{}.is_lock_free() << '\n';
+}
+
+
+std::atomic<uint64_t> is lock_free:1
+std::atomic<A> is lock free? false
+std::atomic<B> is lock free? true
+=================================
+* process staticstics
+
+
+
+ultrauser@krishna1:~/metadataserver$ cat /proc/`pidof mysqld`/limits
+Limit                     Soft Limit           Hard Limit           Units     
+Max cpu time              unlimited            unlimited            seconds   
+Max file size             unlimited            unlimited            bytes     
+Max data size             unlimited            unlimited            bytes     
+Max stack size            8388608              unlimited            bytes     
+Max core file size        unlimited            unlimited            bytes     
+Max resident set          unlimited            unlimited            bytes     
+Max processes             515531               515531               processes 
+Max open files            40960                40960                files     
+Max locked memory         16777216             16777216             bytes     
+Max address space         unlimited            unlimited            bytes     
+Max file locks            unlimited            unlimited            locks     
+Max pending signals       515531               515531               signals   
+Max msgqueue size         819200               819200               bytes     
+Max nice priority         0                    0                    
+Max realtime priority     0                    0                    
+Max realtime timeout      unlimited            unlimited            us        
+ultrauser@krishna1:~/metadataserver$ 
+ultrauser@krishna1:~/metadataserver$ 
+ultrauser@krishna1:~/metadataserver$ ps -o thcount `pidof mysqld`
+THCNT
+ 1539
+ultrauser@krishna1:~/metadataserver$ cat /proc/`pidof mysqld`/status
+Name:	mysqld
+Umask:	0026
+State:	S (sleeping)
+Tgid:	6605
+Ngid:	6605
+Pid:	6605
+PPid:	1
+TracerPid:	0
+Uid:	1000	1000	1000	1000
+Gid:	1000	1000	1000	1000
+FDSize:	32768
+Groups:	4 20 24 25 27 29 30 44 46 108 114 1000 
+NStgid:	6605
+NSpid:	6605
+NSpgid:	6604
+NSsid:	6604
+VmPeak:	46608288 kB
+VmSize:	40890216 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	10974620 kB
+VmRSS:	10498824 kB
+RssAnon:	10475160 kB
+RssFile:	   23664 kB
+RssShmem:	       0 kB
+VmData:	12563588 kB
+VmStk:	     136 kB
+VmExe:	   50784 kB
+VmLib:	   51008 kB
+VmPTE:	   26964 kB
+VmSwap:	       0 kB
+HugetlbPages:	       0 kB
+CoreDumping:	0
+THP_enabled:	1
+Threads:	1539 <-- Thread count
+SigQ:	0/515531
+SigPnd:	0000000000000000
+ShdPnd:	0000000000000000
+SigBlk:	0000000000084805
+SigIgn:	0000000000003000
+SigCgt:	0000000180000200
+CapInh:	0000000000000000
+CapPrm:	0000000000000000
+CapEff:	0000000000000000
+CapBnd:	0000003fffffffff
+CapAmb:	0000000000000000
+NoNewPrivs:	0
+Seccomp:	0
+Speculation_Store_Bypass:	vulnerable
+Cpus_allowed:	ffffffff,ffffffff
+Cpus_allowed_list:	0-63
+Mems_allowed:	00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000003
+Mems_allowed_list:	0-1
+voluntary_ctxt_switches:	25684
+nonvoluntary_ctxt_switches:	295
+ultrauser@krishna1:~/metadataserver$ watch ps -o thcount `pidof mysqld`
+
+
+Total number of threads used in all threads:
+ultrauser@krishna1:~/metadataserver$ ps -eo nlwp | tail -n +2 | awk '{ num_threads += $1 } END { print num_threads }'
+2519
+ultrauser@krishna1:~/metadataserver$
+
+Ref: https://stackoverflow.com/questions/268680/how-can-i-monitor-the-thread-count-of-a-process-on-linux
+
+==============================

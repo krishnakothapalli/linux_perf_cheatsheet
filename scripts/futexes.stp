@@ -38,6 +38,7 @@ probe syscall.futex {
 
   if(!([pid(), futex_uaddr] in mutex_run_stack)) {
      mutex_run_stack[pid(), futex_uaddr] = sprint_ubacktrace()
+     // better/faster: ustack:long(n:long) https://sourceware.org/systemtap/tapsets/API-ustack.html
   } 
 }
 
