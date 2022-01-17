@@ -891,6 +891,7 @@ perf stat - gives summary performance counters for a program
 ----------------------------------------------------------------
 This is: statistics/count: increment an integer counter on events
 
+
 $ sudo perf stat /tmp/simple
  Performance counter stats for '/tmp/simple':
 
@@ -909,10 +910,19 @@ $ sudo perf stat /tmp/simple
 perf-record : record program's profile (at some sampling frequency)
 ------------------------------------------------------------------
 
+Use perf record --call-graph dwarf for application stack as well.
+Use -g  Enables call-graph (stack chain/backtrace) recording for both kernel space and user space.
+
+Eg., sudo  perf record --call-graph dwarf -g -p $(pidof fio) sleep 10
+
+Eg., sudo  perf record --call-graph dwarf -g -p 5627 sleep 20
+
 This is sampling: collect details (eg, instruction pointer or stack) from a subset of events (once every ...)
 
 $ sudo perf record /tmp/simple
-$ perf report --stdio
+sudo  perf record --call-graph dwarf -g -p $(pidof fio) sleep 10
+
+$ sudo perf report --stdio
  or outside emacs
 $  perf report  <-- nice
 
@@ -1017,6 +1027,109 @@ $  perf report -d libfoo.so -f --stdio
      0.01%  mysqld-foo  [.] std::chrono::duration<long, std::ratio<1l, 1000000l> >::duration<int, void>@plt
      0.01%  mysqld-foo  [.] std::chrono::duration<unsigned long, std::ratio<1l, 1000000000l> >::count@plt
      
+
+GOOD see where program is sleeping or context switching (eg., waiting for mutex)
+--------------------------------------------------------------------------------
+Ref: https://perf.wiki.kernel.org/index.php/Tutorial#Profiling_sleep_times
+
+This feature shows where and how long a program is sleeping or waiting something.
+
+The first step is collecting data. We need to collect sched_stat and sched_switch events. Sched_stat events are not enough, because they are generated in the context of a task, which wakes up a target task (e.g. releases a lock). We need the same event but with a call-chain of the target task. This call-chain can be extracted from a previous sched_switch event.
+
+The second step is merging sched_start and sched_switch events. It can be done with help of "perf inject -s". <-- did not work for me
+
+Use --call-graph dwarf for application stack as well.
+add --e sched:sched_waking as well in the below command 
+$ sudo perf record  --call-graph dwarf -e sched:sched_stat_sleep -e sched:sched_switch  -e sched:sched_process_exit  -e sched:sched_waking -g -o ~/perf.data.raw -p $(pidof mysqld-vml)
+  C-c C-c[ perf record: Woken up 253 times to write data ]
+[ perf record: Captured and wrote 66.781 MB /home/narwhal/perf.data.raw (8123 samples) ]
+
+sudo perf inject -v -s -i ~/perf.data.raw -o ~/perf.data <-- this did not work properly
+sudo perf report --stdio --show-total-period -i ~/perf.data <-- this did not show any data.
+
+
+$ sudo perf report --stdio --show-total-period -i ~/perf.data.raw | cat
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 0  of event 'sched:sched_stat_sleep' <-- you will see one section for each event here sched_stat_sleep
+# Event count (approx.): 0
+#
+# Children      Self        Period  Trace output
+# ........  ........  ............  ............
+#
+
+
+# Samples: 8K of event 'sched:sched_switch' <-- section for sched_switch
+# Event count (approx.): 8123
+#
+# Children      Self        Period  Trace output                                                                                                      
+# ........  ........  ............  ..................................................................................................................
+#
+     8.22%     8.22%           668  prev_comm=mysqld-vml prev_pid=8356 prev_prio=120 prev_state=S ==> next_comm=swapper/15 next_pid=0 next_prio=120
+            |
+            ---__GI___clone (inlined)
+               start_thread
+               0x7f063a46d6de
+               std::thread::_State_impl<std::thread::_Invoker<std::tuple<Runnable, void (*)()> > >::_M_run
+               ?? (inlined)
+               ?? (inlined)
+               ?? (inlined)
+               ?? (inlined)
+               ?? (inlined)
+               ?? (inlined)
+               ?? (inlined)
+               ?? (inlined)
+               std::thread::_State_impl<std::thread::_Invoker<std::tuple<Runnable, void (*)()> > >::_M_run
+               async_log_reader_thread
+               |          
+                --8.15%--os_event::wait_time_low
+                          os_event::timed_wait
+                          __pthread_cond_timedwait (inlined)
+                          __pthread_cond_wait_common (inlined)
+                          |          
+                           --8.14%--futex_abstimed_wait_cancelable (inlined)
+                                     entry_SYSCALL_64_after_hwframe
+                                     do_syscall_64
+                                     __x64_sys_futex
+                                     do_futex
+                                     futex_wait
+                                     futex_wait_queue_me
+                                     schedule
+                                     __schedule
+                                     __schedule
+....
+
+# Samples: 15K of event 'sched:sched_waking' <-- section for waking ...
+# Event count (approx.): 15638
+#
+# Children      Self        Period  Trace output                                        
+# ........  ........  ............  ....................................................
+#
+     7.78%     7.78%          1217  comm=mysqld-vml pid=8351 prio=120 target_cpu=011
+            |          
+             --7.70%--secondary_startup_64
+                       start_secondary
+                       cpu_startup_entry
+                       do_idle
+                       |          
+                        --7.67%--default_idle_call
+                                  arch_cpu_idle
+                                  __sched_text_end
+                                  native_safe_halt
+                                  |          
+                                   --7.65%--hv_stimer0_callback_vector
+                                             hv_stimer0_vector_handler
+                                             hv_stimer0_isr
+                                             hrtimer_interrupt
+                                             __hrtimer_run_queues
+                                             hrtimer_wakeup
+                                             wake_up_process
+                                             try_to_wake_up
+                                             try_to_wake_up
+
 
 Perf Tracing - painful for C++ not good
 --------------------------------------------
@@ -2411,9 +2524,7 @@ std::atomic<uint64_t> is lock_free:1
 std::atomic<A> is lock free? false
 std::atomic<B> is lock free? true
 =================================
-* process staticstics
-
-
+* process statistics
 
 ultrauser@krishna1:~/metadataserver$ cat /proc/`pidof mysqld`/limits
 Limit                     Soft Limit           Hard Limit           Units     
@@ -2505,3 +2616,346 @@ ultrauser@krishna1:~/metadataserver$
 Ref: https://stackoverflow.com/questions/268680/how-can-i-monitor-the-thread-count-of-a-process-on-linux
 
 ==============================
+Approach to find issues
+-----------------------
+
+while running the performance or stress test: capture performance results and stats together continuously.
+This helps in identifying issues more easily:- eg., memory growing over time, CPU difference, kernel buffers growing etc.,
+
+Eg.,
+  cd scripts
+  ./automate_perf_runs.sh <-- this runs sysbench on remote host. also starts running periodic_stats_collector.sh
+
+the script periodic_stats_collector.sh collects these periodically:-
+ssh ${adminUser}@$hostip1 'bash -s' <<EOF
+  sleep 60
+  TERM=dumb
+  while true; do
+   sleep 60
+   date
+   echo "free -m"
+   free -m
+   echo "vmstat --timestamp  --wide 2 3"
+   vmstat --timestamp  --wide 2 3
+   echo "iostat -xmc -y 2 3"
+   iostat -xmc -y 2 3
+   echo "dstat -a 2 3"
+   dstat -a 2 3
+   echo "nping --tcp -p 22 10.0.0.4"
+   echo "page faults: pid,min_flt,maj_flt,cmd"
+   ps -o pid,min_flt,maj_flt,cmd -A | grep mysqld
+   ...
+
+Sample output:- here we see sysbench and Linux stats simultaniously together continously.
+
+
+Threads started!
+
+[ 10s ] thds: 300 tps: 114800.08 qps: 114800.08 (r/w/o: 81776.22/21615.48/11408.38) lat (ms,95%): 6.91 err/s: 0.00 reconn/s: 0.00
+Thu May 27 02:17:30 UTC 2021
+free -m
+              total        used        free      shared  buff/cache   available
+Mem:          64320       11911       49131           1        3276       51720
+Swap:             0           0           0
+vmstat --timestamp  --wide 2 3
+procs -----------------------memory---------------------- ---swap-- -----io---- -system-- --------cpu-------- -----timestamp-----
+ r  b         swpd         free         buff        cache   si   so    bi    bo   in   cs  us  sy  id  wa  st                 UTC
+ 0  0            0     50310720      2136268      1219296    0    0    30  1434  779   49  23  13  64   0   0 2021-05-27 02:17:30
+92  1            0     50308812      2136328      1219308    0    0     4 33962 395047 513989  53  30  16   0   0 2021-05-27 02:17:32
+[ 20s ] thds: 300 tps: 133588.95 qps: 133588.95 (r/w/o: 95274.58/25088.78/13225.59) lat (ms,95%): 6.79 err/s: 0.00 reconn/s: 0.00
+64  1            0     50311296      2136384      1219344    0    0     4 34716 400445 514116  55  31  14   0   0 2021-05-27 02:17:34
+iostat -xmc -y 2 3
+Linux 5.4.0-1047-azure (replica1) 	05/27/21 	_x86_64_	(32 CPU)
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+          28.20    0.00   15.57    0.20    0.00   56.02
+
+Device            r/s     w/s     rMB/s     wMB/s   rrqm/s   wrqm/s  %rrqm  %wrqm r_await w_await aqu-sz rareq-sz wareq-sz  svctm  %util
+loop0            0.00    0.00      0.00      0.00     0.00     0.00   0.00   0.00    0.00    0.00   0.00     0.00     0.00   0.00   0.00
+sda              0.00    0.00      0.00      0.00     0.00     0.00   0.00   0.00    0.00    0.00   0.00     0.00     0.00   0.00   0.00
+sdb              1.00  200.00      0.00      9.25     0.00    16.50   0.00   7.62    0.50    7.98   1.29     4.00    47.36   0.55  11.00
+sdc              0.00  516.00      0.00     10.46     0.00  2150.00   0.00  80.65    0.00    0.64   0.00     0.00    20.76   1.02  52.60
+sdd              0.00  879.50      0.00     13.62     0.00     0.00   0.00   0.00    0.00   12.61   9.32     0.00    15.86   0.15  13.40
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+          54.49    0.00   30.10    0.29    0.00   15.12
+
+Device            r/s     w/s     rMB/s     wMB/s   rrqm/s   wrqm/s  %rrqm  %wrqm r_await w_await aqu-sz rareq-sz wareq-sz  svctm  %util
+loop0            0.00    0.00      0.00      0.00     0.00     0.00   0.00   0.00    0.00    0.00   0.00     0.00     0.00   0.00   0.00
+sda              0.00    0.00      0.00      0.00     0.00     0.00   0.00   0.00    0.00    0.00   0.00     0.00     0.00   0.00   0.00
+sdb              1.50   86.00      0.01     31.46     0.00    31.00   0.00  26.50   33.00   33.30   2.78     4.00   374.58   3.79  33.20
+sdc              0.00  846.00      0.00     19.37     0.00  4111.00   0.00  82.93    0.00    0.72   0.00     0.00    23.44   1.10  92.80
+sdd              0.00  868.50      0.00     13.48     0.00     0.00   0.00   0.00    0.00   10.08   6.97     0.00    15.90   0.12  10.80
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+          55.20    0.00   30.81    0.27    0.00   13.72
+
+  
+
+
+
+
+
+
+=====================================
+GOOD approach to find the CPU bottleneck
+===========================================
+Need to find the hot CPU core and the code running it
+
+GOOD 0) pidstat is a very good tool to view by thread CPU, IO, faults, stack etc.,
+-----------------------------------------------------------------------
+Ref: https://www.percona.com/blog/2020/04/23/a-simple-approach-to-troubleshooting-high-cpu-in-mysql/ this finds the hot cpu and corresponding MySQL query (percona enhancement)
+
+-p Select tasks (processes) for which statistics are to be  reported.
+-d I/O, -w  task switching activity, -s Report stack utilization, -R Report realtime priority and scheduling policy information, -r Report page faults and memory utilization,  -v Report values of some kernel tables
+
+$  pidstat -h  -d -w -s -u -R -r -v  -t -p 27298 1
+Linux 5.4.0-92-generic (narwhal) 	01/16/2022 	_x86_64_	(16 CPU)
+
+# Time        UID      TGID       TID    %usr %system  %guest   %wait    %CPU   CPU  minflt/s  majflt/s     VSZ     RSS   %MEM StkSize  StkRef   kB_rd/s   kB_wr/s kB_ccwr/s iodelay   cswch/s nvcswch/s threads   fd-nr prio policy  Command
+04:23:11 PM  1000     27298         -    2.69    1.08    0.00    0.00    3.76    10      0.00      0.00 7835376  445856   1.85     132      56      0.00      0.00      0.00       0      0.00      0.00      98      54    0 NORMAL  mysqld-vml
+04:23:11 PM  1000         -     27298    0.00    0.00    0.00    0.00    0.00    10      0.00      0.00 7835376  445856   1.85     132      56      0.00      0.00      0.00       0      0.00      0.00      98      54    0 NORMAL  |__mysqld-vml
+04:23:11 PM  1000         -     27299    0.00    0.00    0.00    0.00    0.00    12      0.00      0.00 7835376  445856   1.85     132      56      0.00      0.00      0.00       0      0.00      0.00      98      54    0 NORMAL  |__mysqld-vml-ust
+04:23:11 PM  1000         -     27371    0.54    0.00    0.00    0.54    0.54     5      0.00      0.00 7835376  445856   1.85     132      56      0.00      0.00      0.00       0     97.85      0.00      98      54    0 NORMAL  |__mysqld-vml
+04:23:11 PM  1000         -     27372    0.54    0.00    0.00    0.00    0.54    13      0.00      0.00 7835376  445856   1.85     132      56      0.00      0.00      0.00       0     97.85      0.00      98      54    0 NORMAL  |__mysqld-vml
+04:23:11 PM  1000         -     27373    0.54    0.00    0.00    0.00    0.54     5      0.00      0.00 7835376  445856   1.85     132      56      0.00      0.00      0.00       0     97.85      0.00      98      54    0 NORMAL  |__mysqld-vml
+04:23:11 PM  1000         -     27374    0.54    0.00    0.00    0.00    0.54     7      0.00      0.00 7835376  445856   1.85     132      56      0.00      0.00      0.00       0     97.85      0.00      98      54    0 NORMAL  |__mysqld-vml
+
+
+
+1) First find the hot thread that is busy (usually not all threads are busy)
+-----------------------------------------------------------------------------
+
+
+outside emacs:-
+This will 
+$ top -H
+Press "f" -> select "P" and hit enter  -> ESC
+press "1" to cpus as well 
+Ref: https://www.cs.swarthmore.edu/~newhall/unixhelp/top.php
+
+top - 00:02:08 up 43 min,  4 users,  load average: 139.43, 114.62, 62.71
+Threads: 788 total,  26 running, 684 sleeping,   0 stopped,   1 zombie
+%Cpu0  : 63.3 us, 25.4 sy,  0.0 ni,  0.4 id,  0.4 wa,  0.0 hi, 10.4 si,  0.0 st
+%Cpu1  : 63.5 us, 24.6 sy,  0.0 ni,  0.7 id,  0.2 wa,  0.0 hi, 11.1 si,  0.0 st
+%Cpu2  : 60.4 us, 27.6 sy,  0.0 ni,  0.9 id,  0.0 wa,  0.0 hi, 11.1 si,  0.0 st
+%Cpu3  : 63.9 us, 25.9 sy,  0.0 ni,  1.1 id,  0.0 wa,  0.0 hi,  9.1 si,  0.0 st
+KiB Mem : 16398256 total,   176588 free, 11185804 used,  5035864 buff/cache
+KiB Swap:        0 total,        0 free,        0 used.  4880832 avail Mem
+
+   Thread                                                                    CPU core
+   |                                                                             |   
+  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND       P
+ 7386 narwhal   20   0 12.558g 0.010t  35956 R  4.3 64.9   3:41.62 mysqld-vml    3 <-- PID 7386, CPU 4.3, CPU 3
+ 9865 narwhal   20   0   45328   4712   3336 R  2.0  0.0   0:10.03 top           2
+ 7364 narwhal   20   0 12.558g 0.010t  35956 S  1.8 64.9   0:06.21 mysqld-vml    2
+10075 narwhal   20   0 12.558g 0.010t  35956 S  1.8 64.9   0:06.90 mysqld-vml    1
+10116 narwhal   20   0 12.558g 0.010t  35956 S  1.8 64.9   0:06.85 mysqld-vml    2
+ 7387 narwhal   20   0 12.558g 0.010t  35956 D  1.6 64.9   0:31.76 mysqld-vml    1
+ 9952 narwhal   20   0 12.558g 0.010t  35956 S  1.6 64.9   0:06.86 mysqld-vml    1
+ 9986 narwhal   20   0 12.558g 0.010t  35956 S  1.6 64.9   0:06.82 mysqld-vml    3
+ 9996 narwhal   20   0 12.558g 0.010t  35956 S  1.6 64.9   0:06.92 mysqld-vml    1
+10006 narwhal   20   0 12.558g 0.010t  35956 S  1.6 64.9   0:06.93 mysqld-vml    0
+10021 narwhal   20   0 12.558g 0.010t  35956 S  1.6 64.9   0:06.97 mysqld-vml    1
+10022 narwhal   20   0 12.558g 0.010t  35956 S  1.6 64.9   0:06.85 mysqld-vml    1
+
+
+
+find the hot pid perf report and code
+--------------------------------------
+Use perf to capture CPU of the hot thread : 7386
+  $ sudo  perf record --call-graph dwarf -g -p 7386 sleep 5
+
+narwhal@replica1:~$ sudo perf report --stdio
+
+$ sudo perf report --stdio
+ or outside emacs
+$  perf report  <-- nice
+
+
+# Samples: 18K of event 'cpu-clock:pppH'
+# Event count (approx.): 4572000000
+#
+# Children      Self  Command     Shared Object        Symbol                        # ........  ........  ..........  ...................  ..............................#
+    68.33%     0.00%  mysqld-vml  [unknown]            [.] 0xffffffffffffffff
+            |
+            ---0xffffffffffffffff
+               |          
+               |--53.26%--dispatch_command
+               |          |          
+               |          |--44.46%--mysqld_stmt_execute
+               |          |          Prepared_statement::execute_loop
+               |          |          Prepared_statement::execute
+               |          |          mysql_execute_command
+               |          |          |          
+               |          |          |--24.23%--Sql_cmd_dml::execute
+               |          |          |          |          
+               |          |          |          |--12.29%--Sql_cmd_dml::execute_inner               |          |          |          |          |          
+               |          |          |          |          |--7.26%--SELECT_LEX::opti               |          |          |          |          |          |          
+...skipping...
+
+find the hot pid code stack (collect few times )
+--------------------------------------------------
+
+pidof mysqld-vml | xargs -n1 sudo gdb --batch -ex "thread apply all bt" -p'
+(or)
+  sudo gdb  /home/narwhal/mysql/bin/mysqld-vml
+  set width 0
+  set height 0
+  set pagination no
+  set confirm off
+  attach 7386
+  thread apply all bt
+  detach
+  quit
+  
+
+Thread 1 (Thread 0x7f580061a700 (LWP 7386)):
+#0  Link_buf<unsigned long>::advance_tail_until<log_advance_ready_for_write_lsn(log_t&)::<lambda(lsn_t, lsn_t)> > (stop_condition=..., this=0x7f5a94433d00) at /home/narwhal/orcasql-mysql/storage/innobase/include/ut0link_buf.h:293
+#1  log_advance_ready_for_write_lsn (log=...) at /home/narwhal/orcasql-mysql/storage/innobase/log/log0buf.cc:1190
+#2  0x0000564547e9e688 in <lambda(bool)>::operator() (wait=<optimized out>, __closure=<optimized out>) at /home/narwhal/orcasql-mysql/storage/innobase/log/log0write.cc:2392
+#3  os_event_wait_for<log_writer(log_t*)::<lambda(bool)> > (condition=..., timeout=<optimized out>, spins_limit=<optimized out>, event=<synthetic pointer>: <optimized out>) at /home/narwhal/orcasql-mysql/storage/innobase/include/os0event.ic:86
+#4  Log_thread_waiting::wait<log_writer(log_t*)::<lambda(bool)> > (stop_condition=..., this=<synthetic pointer>) at /home/narwhal/orcasql-mysql/storage/innobase/log/log0write.cc:1097
+#5  log_writer (log_ptr=0x7f5a94433c40) at /home/narwhal/orcasql-mysql/storage/innobase/log/log0write.cc:2424
+#6  0x0000564547e5ed7c in std::__invoke_impl<void, void (*&)(log_t*), log_t*&> (__f=<optimized out>) at /usr/include/c++/7/bits/invoke.h:60
+#7  std::__invoke<void (*&)(log_t*), log_t*&> (__fn=<synthetic pointer>: <optimized out>) at /usr/include/c++/7/bits/invoke.h:95
+#8  std::_Bind<void (*(log_t*))(log_t*)>::__call<void, , 0ul>(std::tuple<>&&, std::_Index_tuple<0ul>) (__args=..., this=<synthetic pointer>) at /usr/include/c++/7/functional:467
+#9  std::_Bind<void (*(log_t*))(log_t*)>::operator()<, void>() (this=<synthetic pointer>) at /usr/include/c++/7/functional:551
+#10 Runnable::operator()<void (*)(log_t*), log_t*> (f=@0x7f5a9454a4a0: 0x564547e9e430 <log_writer(log_t*)>, this=0x7f5a9454a4a8) at /home/narwhal/orcasql-mysql/storage/innobase/include/os0thread-create.h:92
+#11 std::__invoke_impl<void, Runnable, void (*)(log_t*), log_t*> (__f=...) at /usr/include/c++/7/bits/invoke.h:60
+#12 std::__invoke<Runnable, void (*)(log_t*), log_t*> (__fn=...) at /usr/include/c++/7/bits/invoke.h:95
+#13 std::thread::_Invoker<std::tuple<Runnable, void (*)(log_t*), log_t*> >::_M_invoke<0ul, 1ul, 2ul> (this=0x7f5a9454a498) at /usr/include/c++/7/thread:234
+#14 std::thread::_Invoker<std::tuple<Runnable, void (*)(log_t*), log_t*> >::operator() (this=0x7f5a9454a498) at /usr/include/c++/7/thread:243
+#15 std::thread::_State_impl<std::thread::_Invoker<std::tuple<Runnable, void (*)(log_t*), log_t*> > >::_M_run (this=0x7f5a9454a490) at /usr/include/c++/7/thread:186
+#16 0x00007f5adbe206df in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#17 0x00007f5add8ba6db in start_thread (arg=0x7f580061a700) at pthread_create.c:463
+#18 0x00007f5adb4dd71f in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+(gdb) Detaching from program: /home/narwhal/mysql/bin/mysqld-vml, process 7386
+
+====================================
+CPU and thread timechart GOOD
+-------------------------
+You can see over time line:
+ - on each CPU: which processes are running. Is CPU sleeping, blocked on IO
+ - For each process thread: see when it is running, idle, sleeping, waiting for cpum blocked on io
+
+Record for short time say 1-2 seconds (other wise hard to see the svg graph browser will not show it properly)
+To capture:
+sudo rm perf.data output.svg; sudo perf timechart record  sleep 2
+[ perf record: Woken up 65 times to write data ]
+[ perf record: Captured and wrote 17.979 MB perf.data (176856 samples) ] <-- if too any points. browser can't render svg file. better to have less than 50k points
+
+To generate graph use this:
+svg image will have width of 100L
+narwhal@narwhal:~$ sudo perf timechart --width=100000   | cat
+Written 2.0 seconds of trace to output.svg.
+
+
+start webserver
+  python -m SimpleHTTPServer 8080
+For browser open svg file:
+  http://10.34.178.64:8080/output.svg
+
+To view it using ascii use this :
+sudo perf script | less
+
+         Swapper means idle        Time stamp
+          |         PID  CPU number |         event name          event params--->
+          v          v    |         |         |
+         swapper     0 [002] 1547661.907140:  sched:sched_wakeup: comm=simple pid=22393 prio=120 target_cpu=002
+         Above says simple thread 22393  wakes up CPU 2, which causes an idle exist.
+        
+         swapper     0 [002] 1547661.907321:  sched:sched_wakeup: comm=simple pid=22393 prio=120 target_cpu=002
+         swapper     0 [002] 1547661.907500:  sched:sched_wakeup: comm=simple pid=22393 prio=120 target_cpu=002
+         swapper     0 [002] 1547661.907680:  sched:sched_wakeup: comm=simple pid=22393 prio=120 target_cpu=002
+         ..
+         simple 22393 [002] 1547661.907887:  sched:sched_switch: prev_comm=simple prev_pid=22393 prev_prio=120 prev_state=S ==> next_comm=swapper/2 next_pid=0 next_prio=120
+         I think above says simple thread went to sleep and CPU 2 is context switched to idle "swapper" 
+
+
+You can follow a thread as follows
+narwhal@narwhal:~$ sudo perf script | grep 22393 | more
+         swapper     0 [002] 1547661.907871:  sched:sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=simple next_pid=22393 next_prio=120
+          simple 22393 [002] 1547661.907887:  sched:sched_switch: prev_comm=simple prev_pid=22393 prev_prio=120 prev_state=S ==> next_comm=swapper/2 next_pid=0 next_prio=120
+         swapper     0 [002] 1547661.908041:  sched:sched_wakeup: comm=simple pid=22393 prio=120 target_cpu=002
+         swapper     0 [002] 1547661.908052:  sched:sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=simple next_pid=22393 next_prio=120
+          simple 22393 [002] 1547661.908066:  sched:sched_switch: prev_comm=simple prev_pid=22393 prev_prio=120 prev_state=S ==> next_comm=swapper/2 next_pid=0 next_prio=120
+         swapper     0 [002] 1547661.908221:  sched:sched_wakeup: comm=simple pid=22393 prio=120 target_cpu=002
+         swapper     0 [002] 1547661.908232:  sched:sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=simple next_pid=22393 next_prio=120
+
+Above Ref: https://learning.oreilly.com/library/view/energy-efficient-servers/9781430266389/9781430266372_Ch07.xhtml#Sec11
+
+To view the stack trace of the hot thread use these:
+  - See: find the hot pid code stack (collect few times )
+  - see: find the hot pid perf report and code
+==========================================================================================
+Disabling a hyperthreaded core
+
+# echo "0" > /sys/devices/system/cpu/cpu3/online
+bash: echo: write error: Device or resource busy
+
+Need to disable at boot time or ?
+https://unix.stackexchange.com/questions/417672/how-to-disable-one-cpu
+
+
+===========================
+Changing thread priority
+
+ Ref: https://stackoverflow.com/questions/3649281/how-to-increase-thread-priority-in-pthreads
+ Ref: https://www.geeksforgeeks.org/chrt-command-in-linux-with-examples/
+
+ $chrt -m
+ SCHED_OTHER min/max priority    : 0/0
+ SCHED_FIFO min/max priority     : 1/99
+ SCHED_RR min/max priority       : 1/99
+ SCHED_BATCH min/max priority    : 0/0
+ SCHED_IDLE min/max priority     : 0/0
+
+
+
+'Normal' scheduling policies: (from sched_setscheduler(2))
+
+   SCHED_OTHER   the standard round-robin time-sharing policy;
+   SCHED_BATCH   for "batch" style execution of processes; and
+   SCHED_IDLE    for running very low priority background jobs.
+
+Real-time scheduling policies:
+   SCHED_FIFO    a first-in, first-out policy; and
+   SCHED_RR      a round-robin policy.
+===========================
+
+disabling hyperthreading did not work on Azure
+--------------------------------------------------
+
+Otheroption is using "taskset", move critical processes on a core and non-critical process out of that coreSwitchback GTX Mittens - Men's
+REF: https://serverfault.com/questions/235825/disable-hyperthreading-from-within-linux-no-access-to-bios
+
+changin grub maxcpus=2 did not work
+---------------------------------------
+Ref: https://unix.stackexchange.com/questions/417672/how-to-disable-one-cpu
+cat /etc/default/grub
+
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash maxcpus=2"
+
+sudo update-grub
+reboot
+
+   $ grep . /sys/devices/system/cpu/cpu*/online
+   /sys/devices/system/cpu/cpu1/online:1
+   /sys/devices/system/cpu/cpu2/online:1
+   /sys/devices/system/cpu/cpu3/online:1
+
+Setting /sys/devices/system/cpu/cpu3/online is failing
+--------------------------------------------------------
+   
+   $ grep . /sys/devices/system/cpu/cpu*/online
+   /sys/devices/system/cpu/cpu1/online:1
+   /sys/devices/system/cpu/cpu2/online:1
+   /sys/devices/system/cpu/cpu3/online:1
+   narwhal@replica1:~/performance/tools$ sudo bash
+   root@replica1:~/performance/tools# echo "0" > /sys/devices/system/cpu/cpu3/online
+   bash: echo: write error: Device or resource busy
+   root@replica1:~/performance/tools# grep . /sys/devices/system/cpu/cpu*/online
+   /sys/devices/system/cpu/cpu1/online:1
+   /sys/devices/system/cpu/cpu2/online:1
+   /sys/devices/system/cpu/cpu3/online:1
