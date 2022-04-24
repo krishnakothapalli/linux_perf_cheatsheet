@@ -1,4 +1,50 @@
 
+==========================================================
+* dstat good tool to see CPU, disk, network, paging and system info
+
+
+$ dstat -a
+--total-cpu-usage-- -dsk/total- -net/total- ---paging-- ---system--
+usr sys idl wai stl| read  writ| recv  send|  in   out | int   csw 
+7 18  73   9   0   0| 936k 3520k|  51M   31M|   0     0 |  43k  191k
+7 11  88   1   0   0| 896k   10M|  53M   32M|   0     0 |  22k   90k
+7 12  87   2   0   0|1064k    0 |  51M   31M|   0     0 |  22k   94k
+7  8  92   0   0   0|   0     0 |  57M   29M|   0     0 |  18k   75k
+7  7  93   0   0   0|4096B  408k|  57M   29M|   0     0 |  17k   81k
+7  7  93   0   0   0|   0   128k|  55M   30M|   0     0 |  17k  111k
+7  7  93   0   0   0| 848k 9624k|  57M   36M|   0     0 |  18k  143k
+7  7  93   0   0   0| 808k  376k|  57M   37M|   0     0 |  18k  159k
+7  8  92   0   0   0| 348k  344k|  55M   34M|   0     0 |  18k  192k
+7  8  92   0   0   0| 252k  368k|  56M   33M|   0     0 |  17k  190k
+7  9  91   0   0   0| 252k  336k|  54M   33M|   0     0 |  17k  204k
+7  9  91   0   0   0| 260k   11M|  56M   35M|   0     0 |  18k  229k
+7  8  92   0   0   0| 268k  400k|  57M   33M|   0     0 |  18k  219k
+
+
+How to see per socket connection stats/details
+Other tools exist: Ref: https://www.binarytides.com/linux-commands-monitor-network/  https://technologynow.home.blog/2019/05/10/18-commands-to-monitor-network-bandwidth-on-linux-server/
+
+$ sudo apt-get install pktstat
+
+outside emacs:-
+-n don't resolve ip to name:
+-t    "Top" mode.  Sorts the display by bit count (or packet count if -p was given) instead of by the name.
+-B    Display data rates in bytes per second (Bps) instead of in bits per second (bps).
+This uses bpf
+$sudo pktstat -i eth0 -nt -B
+
+interface: eth0
+Bps
+
+   Bps    % desc
+ 855.4  10% udp6 fe80::2411:a663:9040:5ef9,53606 <-> ff02::c,3702
+ 692.9   8% udp 10.34.178.129:53605 <-> 239.255.255.250:3702
+ 437.3   5% tcp 10.34.178.31:61576 <-> 10.34.178.64:22
+ 239.6   2% arp
+ 142.2   1% udp 10.36.160.117:51340 <-> 239.255.255.250:1900
+ 130.0   1% udp 10.34.176.141:58049 <-> 239.255.255.250:1900
+  93.8   1% ip6 fe80::6e31:eff:fe30:4271 <-> ff02::12 proto 112
+
 ========================================================
 * top
 ------
@@ -877,6 +923,8 @@ cpu_threads are running ...
 =========================================================================================
 * perf
 
+READ GOOD GOODLinuxperftopbasics.pdf(in this folder) https://blog.dbi-services.com/linux-perf-top-basics-understand-the/
+
 Ref: http://www.brendangregg.com/perf.html
 Terminology I'm using, from lowest to highest overhead:
  - statistics/count: increment an integer counter on events
@@ -912,6 +960,8 @@ perf-record : record program's profile (at some sampling frequency)
 
 Use perf record --call-graph dwarf for application stack as well.
 Use -g  Enables call-graph (stack chain/backtrace) recording for both kernel space and user space.
+
+use -t thread id (for a hot thread)
 
 Eg., sudo  perf record --call-graph dwarf -g -p $(pidof fio) sleep 10
 
@@ -977,6 +1027,37 @@ isPrime  /tmp/simple
 
 Similar output can be obtained by this (can be done in emacs):-
   sudo perf annotate --stdio isPrime | cat
+
+
+
+V.GOOD folded: With long call stack, it may be easier to read them folded (and this is what is used by Brendan Gregg Flame Graphs )
+Ref: https://blog.dbi-services.com/linux-perf-top-basics-understand-the/
+
+perf report --call-graph ,,,,caller -g folded --stdio
+
+# Children      Self  Command  Shared Object      Symbol
+# ........  ........  .......  .................  ..............................................
+#
+   100.00%     0.00%  a.out    libc-2.17.so       [.] __libc_start_main <-- function name
+57.78% __libc_start_main;main;f2;f1 <-- 57.78% cpu cycles is on f1() with stack __libc_start_main->main()->f2->f1()
+27.90% __libc_start_main;main;f1
+10.87% __libc_start_main;main  <-- 10.87% cpu is on main () with stack __libc_start_main()->main()
+2.24% __libc_start_main;main;f2
+0.53% __libc_start_main;f2
+    99.47%    10.87%  a.out    a.out              [.] main
+57.78% main;f2;f1
+27.90% main;f1
+10.87% __libc_start_main;main
+2.24% main;f2
+    86.22%    85.68%  a.out    a.out              [.] f1 <--  85.68% CPU cycles in Self == Children (this does not call other functions)
+57.78% __libc_start_main;main;f2;f1                      <-- 57.78% in  stack main()->f2()->f1()
+27.90% __libc_start_main;main;f1
+    60.82%     2.77%  a.out    a.out              [.] f2
+57.78% f2;f1
+2.24% __libc_start_main;main;f2
+0.53% __libc_start_main;f2
+
+Here are the number of sample in each call stack. For example, just looking at the top I can see that 57.78% is on main()->f2->f1(). So if I can optimize something there in the number of calls from f2() to f1(), I know that I can address a large part of the response time, and CPU resource. This even without optimizing f1() itself. Remember that there are two ways to improve the performance: do it faster and do it less.
 
 
 How to profile only a library
@@ -1131,12 +1212,58 @@ $ sudo perf report --stdio --show-total-period -i ~/perf.data.raw | cat
                                              try_to_wake_up
 
 
-Perf Tracing - painful for C++ not good
+Perf Tracing - WORKS GOOD
 --------------------------------------------
-
 perf-probe - Define new dynamic tracepoints
 Ref: https://linux.die.net/man/1/perf-probe
 
+Add a probe on schedule() function 12th line with recording cpu local variable:
+           ./perf probe schedule:12 cpu
+           or
+           ./perf probe --add='schedule:12 cpu'
+
+perf probe -add='myfunc%return'
+           
+
+To remove probe:-
+sudo perf probe -d PerformIoInternal
+
+List probes:
+sudo perf probe --funcs --no-demangle --filter='*' --exec /home/narwhal/orcasql-mysql/out/extra/vml/lib/libvml.so  | cat
+
+_ZN3vml15MemChunkHandler17PerformIoInternalEPKNS_9IoRequestE
+_ZN3vml21AzureFileChunkHandler17PerformIoInternalEPKNS_9IoRequestE
+_ZN3vml21FileChunkHandlerLinux17PerformIoInternalEPKNS_9IoRequestE
+_ZZN3vml15MemChunkHandler17PerformIoInternalEPKNS_9IoRequestEE19__PRETTY_FUNCTION__
+_ZZN3vml21AzureFileChunkHandler17PerformIoInternalEPKNS_9IoRequestEE12__FUNCTION__
+_ZZN3vml21AzureFileChunkHandler17PerformIoInternalEPKNS_9IoRequestEE19__PRETTY_FUNCTION__
+_ZZN3vml21FileChunkHandlerLinux17PerformIoInternalEPKNS_9IoRequestEE12__FUNCTION__
+_ZZN3vml21FileChunkHandlerLinux17PerformIoInternalEPKNS_9IoRequestEE19__PRETTY_FUNCTION__
+
+
+Add a probe for function:-
+$ sudo perf probe -v -x /home/narwhal/orcasql-mysql/out/extra/vml/lib/libvml.so --add  myalias=_ZN3vml21FileChunkHandlerLinux17PerformIoInternalEPKNS_9IoRequestE --no-demangle
+
+Start the recording:-
+sudo perf record -e probe_libvml:myalias -aR sleep 120
+
+list all the calls recorded:-
+sudo perf script --header -F comm,pid,tid,cpu,time,event,ip,sym,dso
+..
+      mysqld-vml 30058/30087 [009] 4504314.221237: probe_libvml:myalias:      7f3fd4f4550a vml::: 
+      mysqld-vml 30058/30086 [008] 4504314.223833: probe_libvml:myalias:      7f3fd4f4550a vml:::
+      ...
+
+
+
+GOOD C++ perf probe http://notes.secretsauce.net/notes/2019/12/16_c-probes-with-perf.html
+GOOD https://stackoverflow.com/questions/56363396/perf-dynamic-tracing-failed-to-add-events
+In my case the "argument list too long" error was because I was passing a very long mangled C++ symbol name to perf probe; explicitly naming the probe point with the EVENT= syntax allowed the probe point to be successfully added:
+$ sudo perf probe -x myelf --no-demangle --add myalias=_SomeVeryLongMangledNameWhee
+$ sudo perf record -e 'probe_myelf:myalias' -a -- sleep 30
+
+
+OLD OLD
 Step 1: list all functions in program /tmp/simple or library
 ..................................................................
 $ sudo perf probe --funcs --exec /tmp/simple 
@@ -1344,6 +1471,8 @@ Detaching...
 ==============================
 * bpftrace
 
+  you can trace functions/line, args0, arg1, arg2, arg3 (like int, bool, char*, no structs/classes) and return values. product histogram etc.,
+  
  bpftrace  is  a high-level tracing language for Linux enhanced Berkeley Packet Filter (eBPF) available in recent Linux kernels (4.x).
 
        
@@ -1384,6 +1513,8 @@ f4: 0
 $ sudo bpftrace -e 'uprobe:/tmp/simple:isP* { printf("isPrime: %d\n", arg1); }'
 
 Not much functionality for user space:
+
+See https://www.brendangregg.com/BPF/bpftrace-cheat-sheet.html
 See https://github.com/iovisor/bpftrace/blob/master/docs/reference_guide.md#3-uprobeuretprobe-dynamic-tracing-user-level
   section "uprobe/uretprobe: Dynamic Tracing, User-Level"
      uprobe:library_name:function_name[+offset]
@@ -1393,7 +1524,22 @@ See https://github.com/iovisor/bpftrace/blob/master/docs/reference_guide.md#3-up
      probe: arg0, arg1, ..., argN
      uretprobe: retval
 
+  If the traced binary has DWARF available, it is possible to access uprobe arguments by name.
+  Syntax:
+  uprobe: args->NAME
 
+ The list of function's arguments can be retrieved using the verbose list option:
+ bpftrace -lv 'uprobe:/bin/bash:rl_set_prompt'
+ uprobe:/bin/bash:rl_set_prompt
+     const char* prompt
+
+    const char* prompt
+    Example (requires debuginfo for /bin/bash installed):
+
+  # bpftrace -e 'uprobe:/bin/bash:rl_set_prompt { printf("prompt: %s\n", str(args->prompt)); }'
+  Attaching 1 probe...
+  prompt: [user@localhost ~]$
+     
 list probes?
 -----------------
 $ sudo bpftrace -l 'uprobe:/tmp/simple'
@@ -1439,6 +1585,11 @@ eg., for bionic wget https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/
 bunzip2 elfutils_0.170.orig.tar.bz2
 tar xf elfutils_0.170.orig.tar
  cd elfutils-0.170/
+sudo apt install -y gcc
+sudo apt install -y g++
+sudo apt install -y make
+sudo apt install zlib1g-dev
+sudo apt install m4
 ./configure
 make
 sudo make install
@@ -2761,8 +2912,29 @@ KiB Swap:        0 total,        0 free,        0 used.  4880832 avail Mem
 
 
 
-find the hot pid perf report and code
+find the hot thread perf report and code
 --------------------------------------
+-t thread id
+-F frequency 50HZ (low overhead)
+ perf record -F50   --call-graph dwarf -g -t  10160 sleep 10
+
+perf report  --call-graph ,,,,caller -g folded --stdio | cat
+   # Samples: 487  of event 'cpu-clock:pppH'
+   # Event count (approx.): 9740000000
+   #
+   # Children      Self  Command     Shared Object        Symbol                                                                                                       
+   # ........  ........  ..........  ...................  .............................................................................................................
+   #
+       95.07%    23.61%  mysqld-vml  mysqld-vml           [.] log_writer <-- log_writer self 23.61% children:95%
+Children are listed below nicely -->       
+   53.39% log_writer;log_advance_ready_for_write_lsn
+   23.61% clone (inlined);start_thread;0x7f2df086a6de;std::thread::_State_impl<std::thread::_Invoker<std::tuple<Runnable, void (*)(log_t*), log_t*> > >::_M_run;log_writer
+   11.09% log_writer;ThreadQuiesce::should_quiesce
+   1.64% log_writer;log_files_write_buffer;os_event_set;__pthread_cond_broadcast (inlined);futex_wake (inlined);entry_SYSCALL_64_after_hwframe;do_syscall_64;__x64_sys_futex;do_futex;futex_wake;wake_up_q;try_to_wake_up;_raw_spin_unlock_irqrestore
+   0.62% log_writer;log_files_write_buffer;fil_redo_io;Fil_shard::do_redo_io;os_file_write_page;os_file_io;vml_pwrite64
+   
+   
+old 
 Use perf to capture CPU of the hot thread : 7386
   $ sudo  perf record --call-graph dwarf -g -p 7386 sleep 5
 
@@ -2794,11 +2966,103 @@ $  perf report  <-- nice
                |          |          |          |          |--7.26%--SELECT_LEX::opti               |          |          |          |          |          |          
 ...skipping...
 
+
+find the hot pid code stack (collects few times and summarizes)
+-----------------------------------------------------------------
+V.GOOD V.GOOD
+Ref: http://poormansprofiler.org/
+
+Rationale:- Sampling tools like oprofile or dtrace's profile provider don't really provide methods to see what [multithreaded] programs are blocking on - only where they spend CPU time. Though there exist advanced techniques (such as systemtap and dtrace call level probes), it is overkill to build upon that. Poor man doesn't have time. Poor man needs food.
+
+Method:- For a poor developer to understand what a program is doing, he needs to see stacks. Once upon a time (back in Linux 2.4) there was a 'pstack' tool for that, Solaris has it too.
+Modern Linux systems though do not have such facilities, and one needs to improvise, like.. use debuggers - they can walk threads and provide stacks.
+
+Sample output:- shows where multiple threads are blocked on (during multiple snapshots)
+
+bash -x ~/linux_perf_cheatsheet/scripts/gdb_poor_man_stacks.sh 
+    400  in futex_abstimed_wait_cancelable <-- __pthread_cond_wait_common in mutex=, <-- __pthread_cond_timedwait in mutex=, <--  in __gthread_cond_timedwait <-- std::condition_variable::__wait_until_impl<std::chrono::duration<long, in l> <-- std::condition_variable::wait_until<std::chrono::duration<long, in l> <-- vml::ConcurrentQueue<vml::PfsRequestData>::WaitAndPop in pointer>: <-- vml::PfsQueue::Pop in at <--  in vml::ThreadPoolThread<vml::PfsIoRequest, <--  in ?? <--  in start_thread <--  in clone
+     37  in ?? <--  in weak_io_getevents <--  in vml::AioQueue::Pop <--  in vml::ThreadPoolThread<iocb, <--  in ?? <--  in start_thread <--  in clone
+     10  in futex_abstimed_wait_cancelable <-- __pthread_cond_wait_common in mutex=, <-- __pthread_cond_timedwait in mutex=, <--  in __gthread_cond_timedwait <-- std::condition_variable::__wait_until_impl<std::chrono::duration<long, in l> <-- std::condition_variable::wait_until<std::chrono::duration<long, in l> <-- std::condition_variable::wait_until<std::chrono::_V::system_clock, in int, <-- std::condition_variable::wait_for<long in std::ratio<, <-- vml_io_getevents in out>, <--  in LinuxAIOHandler::collect <--  in LinuxAIOHandler::poll <--  in os_aio_linux_handler <-- os_aio_handler in m=m@entry=, <--  in fil_aio_wait <--  in io_handler_thread <--  in std::__invoke_impl<void, <-- std::__invoke<void in long), <-- std::_Bind<void in long))(unsigned <-- std::_Bind<void in long))(unsigned <-- Runnable::operator()<void in long), <-- std::__invoke_impl<void, in void <-- std::__invoke<Runnable, in (*)(unsigned <-- std::thread::_Invoker<std::tuple<Runnable, in (*)(unsigned <-- std::thread::_Invoker<std::tuple<Runnable, in (*)(unsigned <-- std::thread::_State_impl<std::thread::_Invoker<std::tuple<Runnable, in (*)(unsigned <--  in ?? <--  in start_thread <--  in clone
+
+more gdb_poor_man_stacks.sh:-
+
+
+#!/bin/bash
+nsamples=1
+sleeptime=0
+pid=$(pidof mysqld-vml)
+
+for x in $(seq 1 $nsamples)
+do
+  gdb -ex "set pagination 0" -ex "thread apply all bt" -batch -p $pid
+  sleep $sleeptime
+done | \
+awk '
+  BEGIN { s = ""; }
+  /^Thread/ { print s; s = ""; }
+  /^\#/ { fn= $2 " in " $4;  gsub(/0x[0-f]+/, "",fn);  gsub(/[0-9]+/, "",fn);  if (s != "" ) { s = s " <-- " fn} else { s = fn} }
+  END {gsub(/[[:blank:]]/, "", s); print s }' | \
+sort | uniq -c | sort -r -n -k 1,1
+
+
+sample stack (just for reference)
+  gdb -ex "set pagination 0" -ex "thread apply all bt" -batch -p 59961
+
+  Thread 440 (Thread 0x7f1f55b6d700 (LWP 60409)):
+  #0  0x00007f2259fb1065 in futex_abstimed_wait_cancelable (private=<optimized out>, abstime=0x7f1f55b62150, expected=0, futex_word=0x7f2194364688) at ../sysdeps/unix/sysv/linux/futex-internal.h:205
+  #1  __pthread_cond_wait_common (abstime=0x7f1f55b62150, mutex=0x7f2194364638, cond=0x7f2194364660) at pthread_cond_wait.c:539
+  #2  __pthread_cond_timedwait (cond=0x7f2194364660, mutex=0x7f2194364638, abstime=0x7f1f55b62150) at pthread_cond_wait.c:667
+  #3  0x00007f2259a9c6d4 in __gthread_cond_timedwait (__abs_timeout=0x7f1f55b62150, __mutex=<optimized out>, __cond=0x7f2194364660) at /usr/include/x86_64-linux-gnu/c++/7/bits/gthr-default.h:871
+  #4  std::condition_variable::__wait_until_impl<std::chrono::duration<long, std::ratio<1l, 1000000000l> > > (__atime=..., __lock=..., this=0x7f2194364660) at /usr/include/c++/7/condition_variable:178
+  #5  std::condition_variable::wait_until<std::chrono::duration<long, std::ratio<1l, 1000000000l> > > (__atime=..., __lock=..., this=0x7f2194364660) at /usr/include/c++/7/condition_variable:106
+  #6  vml::ConcurrentQueue<vml::PfsRequestData>::WaitAndPop (hasMore=<synthetic pointer>: <optimized out>, timeoutsecs=5, this=0x7f21943645e8) at /home/narwhal/orcasql-mysql/extra/vml/main/src/include/ConcurrentQueue.h:40
+  #7  vml::PfsQueue::Pop (this=0x7f21943645c0) at /home/narwhal/orcasql-mysql/extra/vml/main/src/handlers/PfsRestHandler.cc:332
+  #8  0x00007f2259aa7464 in vml::ThreadPoolThread<vml::PfsIoRequest, vml::PfsEvents, vml::PfsQueue>::DoWork (this=0x7f2194375370, threadPool=0x7f219436e160) at /home/narwhal/orcasql-mysql/extra/vml/main/src/include/ThreadPool.h:283
+  #9  0x00007f225866e6df in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+  #10 0x00007f2259faa6db in start_thread (arg=0x7f1f55b6d700) at pthread_create.c:463
+  #11 0x00007f2257d2b61f in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+  
+
+OLD  OLD
+291 pthread_cond_wait@@GLIBC_2.3.2,one_thread_per_connection_end,handle_one_connection
+57 read,my_real_read,my_net_read,do_command,handle_one_connection,start_thread
+26 pthread_cond_wait@@GLIBC_2.3.2,os_event_wait_low,os_aio_simulated_handle,fil_aio_wait,io_handler_thread,start_thread
+3 pthread_cond_wait@@GLIBC_2.3.2,os_event_wait_low,srv_purge_worker_thread
+1 select,os_thread_sleep,srv_purge_thread
+1 select,os_thread_sleep,srv_master_thread
+1 select,os_thread_sleep,srv_lock_timeout_and_monitor_thread
+1 select,os_thread_sleep,srv_error_monitor_thread
+1 pread64,os_file_pread,os_file_read,fil_io,buf_read_page_low,buf_read_page,buf_page_get_gen,btr_cur_search_to_nth_level,row_search_index_entry,row_upd_step,row_update_for_mysql,ha_innodb::delete_row,handler::ha_delete_row,mysql_delete,mysql_execute_command,mysql_parse,Query_log_event::do_apply_event,apply_event_and_update_pos,handle_slave_sql
+1 pread64,os_file_pread,os_file_read,fil_io,buf_read_page_low,buf_read_page,buf_page_get_gen,btr_cur_search_to_nth_level,row_search_for_mysql,ha_innodb::index_read,handler::index_read_idx_map,join_read_const,join_read_const_table,make_join_statistics,JOIN::optimize,mysql_select,handle_select,execute_sqlcom_select,mysql_execute_command,mysql_parse,dispatch_command,do_command,handle_one_connection
+1 do_sigwait,sigwait,signal_hand
+                        
+Full technology demonstration:-
+
+#!/bin/bash
+nsamples=1
+sleeptime=0
+pid=$(pidof mysqld)
+
+for x in $(seq 1 $nsamples)
+do
+  gdb -ex "set pagination 0" -ex "thread apply all bt" -batch -p $pid
+  sleep $sleeptime
+done | \
+awk '
+  BEGIN { s = ""; }
+  /^Thread/ { print s; s = ""; }
+  /^\#/ { if (s != "" ) { s = s "," $4} else { s = $4 } }
+  END { print s }' | \
+sort | uniq -c | sort -r -n -k 1,1
+
 find the hot pid code stack (collect few times )
 --------------------------------------------------
 
-pidof mysqld-vml | xargs -n1 sudo gdb --batch -ex "thread apply all bt" -p'
+V.GOOD
+pidof mysqld-vml | xargs -n1 sudo gdb --batch -ex "thread apply all bt" -p
+
 (or)
+
   sudo gdb  /home/narwhal/mysql/bin/mysqld-vml
   set width 0
   set height 0
@@ -2959,3 +3223,312 @@ Setting /sys/devices/system/cpu/cpu3/online is failing
    /sys/devices/system/cpu/cpu1/online:1
    /sys/devices/system/cpu/cpu2/online:1
    /sys/devices/system/cpu/cpu3/online:1
+
+=================================================
+GOOD gdb tracing:  dprintf fast tracing
+--------------------------------------
+This prints inline. you can also log to a file (need to find exact steps)
+
+WORKS GOOD: m_filePath is a C++ string
+gdb -p $(pgrep -n mysqld-vml) -batch  -ex 'dprintf vml::FileChunkHandlerLinux::PerformIoInternal,"File:%s offset=%d, bytes=%d foo\n",*(char**)  &m_filePath, ioRequest->offset,  ioRequest->numBytes' -ex 'continue'
+
+C++ string print like this: %s and *(char**)  &m_filePath
+  Ref: https://stackoverflow.com/questions/6776961/how-to-inspect-stdstring-in-gdb-with-no-source-code
+
+How to print timestamp for every log: DID not find an answer.
+  http://mysqlentomologist.blogspot.com/2019/11/dynamic-tracing-of-mysql-server-with.html
+  (gdb) set height 0
+  (gdb) set log on
+  Copying output to gdb.txt.
+  (gdb) b dispatch_command
+  Breakpoint 1 at 0xbe9660: file /mnt/workspace/percona-server-5.7-debian-binary-rocks-new/label_exp/min-xenial-x64/test/percona-server-5.7-5.7.28-31/sql/sql_parse.cc, line 1254.
+  (gdb) command 1
+  Type commands for breakpoint(s) 1, one per line.
+  End with a line saying just "end".
+  >shell date >> ./gdb.txt <-- uses shell date. for nanosecond use date +'%H:%m:%S.%N' 
+  >p com_data->com_query.query
+  >continue
+  >end
+  (gdb) continue
+  
+(gdb) set debug timestamp <-- not working
+
+You can even log to a file or stdout
+Ref: https://doc.ecoscentric.com/gnutools/doc/gdb/Dynamic-Printf.html
+(gdb) set dprintf-style call
+(gdb) set dprintf-function fprintf
+(gdb) set dprintf-channel mylog <-- this is fp defined in code
+(gdb) dprintf 25,"at line 25, glob=%d\n",glob
+Dprintf 1 at 0x123456: file main.c, line 25.
+(gdb) info break
+1       dprintf        keep y   0x00123456 in main at main.c:25
+  call (void) fprintf (mylog,"at line 25, glob=%d\n",glob
+  continue
+(gdb)
+
+
+===================================================
+gdb tracing:  tracepoints (you can trace only ints. no C++ strings, pointers)
+----------------------------------------
+
+tracepoints work only with gdbserver
+ Ref: https://sourceware.org/gdb/onlinedocs/gdb/Set-Tracepoints.html#Set-Tracepoints
+ Ref: https://suchakra.wordpress.com/2016/06/29/fast-tracing-with-gdb/
+
+# stop all processed
+kill -9 $(pgrep -n mysqld-vml);killall -9 gdb
+
+#start mysqld-vml process and attach gdbserver to it
+gdbserver :12345 --attach $(pgrep -n mysqld-vml)
+
+
+# start gdb and connect to gdbserver
+gdb ./out/runtime_output_directory/mysqld-vml
+target remote :12345
+
+//m_filePath is a C++ string
+(gdb) trace FileChunkHandlerLinux::PerformIoInternal
+action 
+collect ioRequest->offset
+collect ioRequest->numBytes
+end
+// C++ / string / memory pointers don't work
+// collect *(char**)  &m_filePath
+// info trace
+//(gdb) delete trace       // remove all tracepoints
+set height 0
+set trace-buffer-size unlimited
+# start tracing
+tstart
+# allow tracing after disconnecting to gdbserver
+set disconnected-tracing on
+detach
+Trace is running and will continue after detach; detach anyway? (y or n) y
+
+<now run tests>
+
+#again connect
+target remote :12345
+# stop tracing
+tstop
+# now dump the traces collected
+set height 0
+tfind start
+while ($trace_frame != -1)
+ printf "offset:%d, bytes:%d\n",  ioRequest->offset, ioRequest->numBytes
+ tfind 
+end
+
+//printf "chunk:%s, offset:%d, bytes:%d\n", *(char**)m_filePath, ioRequest->offset, ioRequest->numBytes
+Sample output:-
+  Found trace frame 22, tracepoint 1
+  offset:16777728, bytes:512
+  Found trace frame 23, tracepoint 1
+  offset:0, bytes:0
+  Found trace frame 24, tracepoint 1
+  offset:1048576, bytes:16384
+  Found trace frame 25, tracepoint 1
+  offset:0, bytes:0
+  Found trace frame 26, tracepoint 1
+  offset:117522432, bytes:16384
+  Found trace frame 27, tracepoint 1
+  offset:0, bytes:0
+  Found trace frame 28, tracepoint 1
+  offset:0, bytes:0
+  Found trace frame 29, tracepoint 1
+  offset:16778752, bytes:512
+  Found trace frame 30, tracepoint 1
+  offset:0, bytes:0
+  
+========================================
+* network optimization
+
+https://docs.microsoft.com/en-us/azure/virtual-network/virtual-network-tcpip-performance-tuning
+
+ ethtool -K eth0 tso on // turn on large_send on
+
+
+ethtool -k  eth0| grep -i offload
+tcp-segmentation-offload: on <-- tso
+udp-fragmentation-offload: off
+generic-segmentation-offload: on
+generic-receive-offload: on
+large-receive-offload: on
+rx-vlan-offload: on [fixed]
+tx-vlan-offload: on [fixed]
+l2-fwd-offload: off [fixed]
+hw-tc-offload: off [fixed]
+esp-hw-offload: off [fixed]
+esp-tx-csum-hw-offload: off [fixed]
+rx-udp_tunnel-port-offload: off [fixed]
+tls-hw-tx-offload: off [fixed]
+tls-hw-rx-offload: off [fixed]
+
+
+$ ethtool -k  eth0
+Features for eth0:
+rx-checksumming: on
+tx-checksumming: on
+	tx-checksum-ipv4: on
+	tx-checksum-ip-generic: off [fixed]
+	tx-checksum-ipv6: on
+	tx-checksum-fcoe-crc: off [fixed]
+	tx-checksum-sctp: off [fixed]
+scatter-gather: on
+	tx-scatter-gather: on
+	tx-scatter-gather-fraglist: off [fixed]
+tcp-segmentation-offload: on
+	tx-tcp-segmentation: on
+	tx-tcp-ecn-segmentation: off [fixed]
+	tx-tcp-mangleid-segmentation: on
+	tx-tcp6-segmentation: on
+udp-fragmentation-offload: off
+generic-segmentation-offload: on
+generic-receive-offload: on
+large-receive-offload: on
+rx-vlan-offload: on [fixed]
+tx-vlan-offload: on [fixed]
+ntuple-filters: off [fixed]
+receive-hashing: on
+highdma: on [fixed]
+rx-vlan-filter: off [fixed]
+vlan-challenged: off [fixed]
+tx-lockless: off [fixed]
+netns-local: off [fixed]
+tx-gso-robust: off [fixed]
+tx-fcoe-segmentation: off [fixed]
+tx-gre-segmentation: off [fixed]
+tx-gre-csum-segmentation: off [fixed]
+tx-ipxip4-segmentation: off [fixed]
+tx-ipxip6-segmentation: off [fixed]
+tx-udp_tnl-segmentation: off [fixed]
+tx-udp_tnl-csum-segmentation: off [fixed]
+tx-gso-partial: off [fixed]
+tx-sctp-segmentation: off [fixed]
+tx-esp-segmentation: off [fixed]
+tx-udp-segmentation: off [fixed]
+fcoe-mtu: off [fixed]
+tx-nocache-copy: off
+loopback: off [fixed]
+rx-fcs: off [fixed]
+rx-all: off [fixed]
+tx-vlan-stag-hw-insert: off [fixed]
+rx-vlan-stag-hw-parse: off [fixed]
+rx-vlan-stag-filter: off [fixed]
+l2-fwd-offload: off [fixed]
+hw-tc-offload: off [fixed]
+esp-hw-offload: off [fixed]
+esp-tx-csum-hw-offload: off [fixed]
+rx-udp_tunnel-port-offload: off [fixed]
+tls-hw-tx-offload: off [fixed]
+tls-hw-rx-offload: off [fixed]
+rx-gro-hw: off [fixed]
+tls-hw-record: off [fixed]
+* Azure accelerate networking
+
+Concept: Create an Azure VM with Accelerated Networking using Azure CLI | Microsoft Docs
+
+Tip 226 - How to enable Accelerated Networking in existing Azure Virtual Machines | Azure Tips and Tricks (microsoft.github.io)
+
+Azure VM NICS use Mellanox nic (use lspci and  ethtool -k  eth0 to see offload)
+pb-connectx-3-pro-card-vpi.pdf (mellanox.com)
+
+offloads
+
+
+
+narwhal@replica1:~$ lspci
+0000:00:00.0 Host bridge: Intel Corporation 440BX/ZX/DX - 82443BX/ZX/DX Host bridge (AGP disabled) (rev 03)
+0000:00:07.0 ISA bridge: Intel Corporation 82371AB/EB/MB PIIX4 ISA (rev 01)
+0000:00:07.1 IDE interface: Intel Corporation 82371AB/EB/MB PIIX4 IDE (rev 01)
+0000:00:07.3 Bridge: Intel Corporation 82371AB/EB/MB PIIX4 ACPI (rev 02)
+0000:00:08.0 VGA compatible controller: Microsoft Corporation Hyper-V virtual VGA
+1368:00:02.0 Ethernet controller: Mellanox Technologies MT27500/MT27520 Family [ConnectX-3/ConnectX-3 Pro Virtual Function]
+
+which offload are on ?
+
+narwhal@replica1:~$ ethtool -k  eth0 
+Features for eth0:
+rx-checksumming: on
+tx-checksumming: on
+        tx-checksum-ipv4: on
+        tx-checksum-ip-generic: off [fixed]
+        tx-checksum-ipv6: on
+        tx-checksum-fcoe-crc: off [fixed]
+        tx-checksum-sctp: off [fixed]
+scatter-gather: on
+        tx-scatter-gather: on
+        tx-scatter-gather-fraglist: off [fixed]
+tcp-segmentation-offload: on
+        tx-tcp-segmentation: on
+        tx-tcp-ecn-segmentation: off [fixed]
+        tx-tcp-mangleid-segmentation: off
+        tx-tcp6-segmentation: on
+udp-fragmentation-offload: off
+generic-segmentation-offload: on
+generic-receive-offload: on
+large-receive-offload: off
+rx-vlan-offload: on [fixed]
+tx-vlan-offload: on [fixed]
+ntuple-filters: off [fixed]
+receive-hashing: on
+highdma: on [fixed]
+rx-vlan-filter: off [fixed]
+vlan-challenged: off [fixed]
+tx-lockless: off [fixed]
+netns-local: off [fixed]
+tx-gso-robust: off [fixed]
+tx-fcoe-segmentation: off [fixed]
+tx-gre-segmentation: off [fixed]
+tx-gre-csum-segmentation: off [fixed]
+tx-ipxip4-segmentation: off [fixed]
+tx-ipxip6-segmentation: off [fixed]
+tx-udp_tnl-segmentation: off [fixed]
+tx-udp_tnl-csum-segmentation: off [fixed]
+tx-gso-partial: off [fixed]
+tx-sctp-segmentation: off [fixed]
+tx-esp-segmentation: off [fixed]
+tx-udp-segmentation: off [fixed]
+fcoe-mtu: off [fixed]
+tx-nocache-copy: off
+loopback: off [fixed]
+rx-fcs: off [fixed]
+rx-all: off [fixed]
+tx-vlan-stag-hw-insert: off [fixed]
+rx-vlan-stag-hw-parse: off [fixed]
+rx-vlan-stag-filter: off [fixed]
+l2-fwd-offload: off [fixed]
+hw-tc-offload: off [fixed]
+esp-hw-offload: off [fixed]
+esp-tx-csum-hw-offload: off [fixed]
+rx-udp_tunnel-port-offload: off [fixed]
+tls-hw-tx-offload: off [fixed]
+tls-hw-rx-offload: off [fixed]
+rx-gro-hw: off [fixed]
+tls-hw-record: off [fixed]
+
+Are offloads working ?
+
+narwhal@replica1:~$ ethtool -S  eth0 | grep vf_
+     vf_rx_packets: 1170
+     vf_rx_bytes: 5484461
+     vf_tx_packets: 7333
+     vf_tx_bytes: 5316679
+     vf_tx_dropped: 0
+     cpu0_vf_rx_packets: 271
+     cpu0_vf_rx_bytes: 102450
+     cpu0_vf_tx_packets: 2119
+     cpu0_vf_tx_bytes: 1940038
+     cpu1_vf_rx_packets: 10
+     cpu1_vf_rx_bytes: 15694
+     cpu1_vf_tx_packets: 844
+     cpu1_vf_tx_bytes: 341109
+     cpu2_vf_rx_packets: 224
+     cpu2_vf_rx_bytes: 4278058
+     cpu2_vf_tx_packets: 2316
+     cpu2_vf_tx_bytes: 777403
+     cpu3_vf_rx_packets: 665
+     cpu3_vf_rx_bytes: 1088259
+     cpu3_vf_tx_packets: 2054
+     cpu3_vf_tx_bytes: 2258129
+narwhal@replica1:~$ 

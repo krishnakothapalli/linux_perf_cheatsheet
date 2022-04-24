@@ -29,7 +29,8 @@
 #define LOOP_COUNT 5
 
 int run_io_threads = 0;
-int run_cpu_threads = 1;
+int run_cpu_threads = 0;
+int busy_cpu_threads = 1;
 
 class C1 {
 public:
@@ -110,6 +111,22 @@ void f4(int d) {
   pthread_mutex_unlock(&mutex3);
   printf(".");
 }
+
+#include <time.h>
+
+void *busy_cpu_thread_function(void *vargp) {
+  uint32_t my_num = (*(uint32_t *)vargp);
+  struct timespec ts;
+  char str[100];
+  for (int loop_count = 0; loop_count < 2000000000; loop_count++) {
+    f1(loop_count);
+    sprintf(str, "%d", loop_count);
+    ts.tv_sec = 0;
+    ts.tv_nsec = 100000 ; // 100 us
+    nanosleep(&ts, &ts);
+  }
+}
+
 void *cpu_thread_function(void *vargp) {
   uint32_t my_num = (*(uint32_t *)vargp);
 
@@ -184,6 +201,11 @@ int main(int argc, char **argv) {
       pthread_create(&cpu_threads[i], NULL, cpu_thread_function,
                      &io_threads_nums[i]);
     }
+    if (busy_cpu_threads) {
+      pthread_create(&cpu_threads[i], NULL, busy_cpu_thread_function,
+                     &io_threads_nums[i]);
+    }
+    
   }
 
   if (run_io_threads) {
@@ -203,5 +225,10 @@ int main(int argc, char **argv) {
     pthread_join(cpu_threads[i], (void **)&return_value);
   }
 
+  for (uint32_t i = 0; busy_cpu_threads && i < THREAD_COUNT; i++) {
+    int *return_value;
+    pthread_join(cpu_threads[i], (void **)&return_value);
+  }
+  
   return 0;
 }
