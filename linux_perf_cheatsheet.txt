@@ -1,4 +1,16 @@
 
+===========================
+
+* network performance test between client and server
+Ref: https://docs.microsoft.com/en-us/azure/virtual-network/virtual-network-bandwidth-testing
+
+you can do linux -> Linux or Linux <-> Windows.
+
+
+From Linux to Windows:
+Receiver <Windows>: ntttcp -r -m <2 x nr cores>,*,<Windows server IP> -ns
+
+Sender <Linux> : ntttcp -s -m <2 x nr cores>,*,<Windows server IP> -N -t 300
 ==========================================================
 * dstat good tool to see CPU, disk, network, paging and system info
 
@@ -33,6 +45,9 @@ outside emacs:-
 This uses bpf
 $sudo pktstat -i eth0 -nt -B
 
+You can filter as well: use tcpdump filter ( eg., "src port 80", "dst port 80", "port 80")
+ sudo pktstat -i eth0 -nt -B "port 445"
+ 
 interface: eth0
 Bps
 
@@ -2969,7 +2984,54 @@ $  perf report  <-- nice
 
 find the hot pid code stack (collects few times and summarizes)
 -----------------------------------------------------------------
+
+
+GOOD https://www.percona.com/blog/2017/04/05/evaluation-of-profiling-tools-for-pmp/
+time quickstack  -c 100000 --single_line -p `pidof mysqld-vml` > junk.txt
+
+time quickstack  -c 1000  -p `pidof mysqld-vml` > junk.txt
+
+real	0m3.031s
+user	0m1.323s
+sys	0m1.108s
+
+time quickstack  -c 1000 --single_line  -p `pidof mysqld-vml` > junk.txt
+
+real	0m1.031s
+user	0m0.348s
+sys	0m0.295s
+
+
+Don't resolve symbols
+
+$ time eu-stack -q -p 59961 > junk1.txt
+
+real	0m0.230s
+user	0m0.037s
+sys	0m0.182s
+# use this to resolve symbols
+eu-addr2line 0x00007f2257d2b61f -p 59961 --functions  --pretty-print
+__clone at ../sysdeps/unix/sysv/linux/x86_64/clone.S:97
+
+TODO REF: https://stackoverflow.com/questions/12394935/getting-stacktrace-of-all-threads-without-attaching-gdb
+V.GOOD 5.6 eu-stack https://developpaper.com/profiling-and-performance-optimization-summary/ https://github.com/brendangregg/FlameGraph
+
+
+
+eu-stack Print a stack for each thread in a process or core file.
+narwhal@narwhal:~/orcasql-mysql/automation_scripts$ time eu-stack -p 59961
+PID 59961 - process
+TID 59961:
+#0  0x00007f2257d1ebb9 __poll
+#1  0x000056417d853c2a Mysqld_socket_listener::listen_for_connection_event()
+#2  0x000056417d65f130 mysqld_main(int, char**)
+#3  0x00007f2257c2bc87 __libc_start_main
+#4  0x000056417d64a30a _start
+
+
 V.GOOD V.GOOD
+
+
 Ref: http://poormansprofiler.org/
 
 Rationale:- Sampling tools like oprofile or dtrace's profile provider don't really provide methods to see what [multithreaded] programs are blocking on - only where they spend CPU time. Though there exist advanced techniques (such as systemtap and dtrace call level probes), it is overkill to build upon that. Poor man doesn't have time. Poor man needs food.
@@ -3004,6 +3066,10 @@ awk '
   END {gsub(/[[:blank:]]/, "", s); print s }' | \
 sort | uniq -c | sort -r -n -k 1,1
 
+
+
+
+#system("eu-addr2line $2 -p 59961 --functions  --pretty-print");
 
 sample stack (just for reference)
   gdb -ex "set pagination 0" -ex "thread apply all bt" -batch -p 59961

@@ -1,6 +1,6 @@
 #!/bin/bash
 nsamples=1
-sleeptime=0
+sleeptime=1
 pid=$(pidof mysqld-vml)
 
 for x in $(seq 1 $nsamples)
